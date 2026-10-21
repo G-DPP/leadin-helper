@@ -1,10 +1,12 @@
 package claude
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -197,5 +199,162 @@ func TestApiKeyNeverReachesAuthStatus(t *testing.T) {
 	}
 	if !slices.Contains(calls[0].Env, "LC_ALL") {
 		t.Errorf("LC_ALL did not reach claude: %v", calls[0].Env)
+	}
+}
+
+func TestBuildCommandMatchesTheEarlierHelper(t *testing.T) {
+	got := BuildCommand("/x/claude", "opus", []string{"WebSearch", "WebFetch"}, "/run/mcp.json", "")
+	want := []string{
+		"/x/claude", "-p", "--restricted", "--model", "opus",
+		"--tools", "WebSearch,WebFetch",
+		"--allowedTools", "mcp__leadin WebSearch WebFetch",
+		"--mcp-config", "/run/mcp.json", "--strict-mcp-config", "--no-session-persistence",
+		"--output-format", "stream-json", "--verbose", "--input-format", "stream-json",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("command = %q\nwant      %q", got, want)
+	}
+}
+
+func TestBuildCommandWithSubagents(t *testing.T) {
+	got := BuildCommand("/x/claude", "sonnet", []string{"WebSearch", "WebFetch", "Agent"}, "/run/mcp.json", "/run/agents.json")
+	want := []string{
+		"/x/claude", "-p", "--restricted", "--model", "sonnet",
+		"--tools", "WebSearch,WebFetch,Agent",
+		"--allowedTools", "mcp__leadin WebSearch WebFetch Agent",
+		"--agents", "/run/agents.json",
+		"--mcp-config", "/run/mcp.json", "--strict-mcp-config", "--no-session-persistence",
+		"--output-format", "stream-json", "--verbose", "--input-format", "stream-json",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("command = %q\nwant      %q", got, want)
+	}
+}
+
+func TestBuildCommandWithoutTools(t *testing.T) {
+	got := BuildCommand("claude", "haiku", nil, "mcp.json", "")
+	if got[5] != "--tools" || got[6] != "" || got[8] != "mcp__leadin" {
+		t.Fatalf("command = %q", got)
+	}
+}
+
+func TestMCPConfigIsPrivate(t *testing.T) {
+	dir := t.TempDir()
+	path, err := WriteMCPConfig(dir, "https://leadin.example/mcp", "tok_secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != filepath.Join(dir, "mcp.json") {
+		t.Fatalf("path = %s", path)
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("mode = %v, %v", info.Mode(), err)
+		}
+	}
+	data, _ := os.ReadFile(path)
+	var config map[string]map[string]map[string]any
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatal(err)
+	}
+	server := config["mcpServers"]["leadin"]
+	headers, _ := server["headers"].(map[string]any)
+	if len(config["mcpServers"]) != 1 || server["type"] != "http" || server["url"] != "https://leadin.example/mcp" || headers["Authorization"] != "Bearer tok_secret" {
+		t.Fatalf("config = %s", data)
+	}
+}
+
+func TestConfigFilesMustNotExist(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "mcp.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteMCPConfig(dir, "https://leadin.example/mcp", "tok"); err == nil {
+		t.Fatal("mcp.json overwritten")
+	}
+	if _, err := WriteAgentsConfig(dir, map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteAgentsConfig(dir, map[string]any{}); err == nil {
+		t.Fatal("agents.json overwritten")
+	}
+}
+
+func TestAgentsConfigIsTheGivenValue(t *testing.T) {
+	dir := t.TempDir()
+	agents := map[string]any{"example-worker": map[string]any{"description": "d", "prompt": "p", "tools": []string{"WebSearch"}}}
+	path, err := WriteAgentsConfig(dir, agents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != `{"example-worker":{"description":"d","prompt":"p","tools":["WebSearch"]}}` {
+		t.Fatalf("agents.json = %s", data)
+	}
+	if info, _ := os.Stat(path); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %v", info.Mode())
+	}
+}
+
+func TestRunDirNames(t *testing.T) {
+	if got := dirName("/tmp/leadin-run-a1_b.c/è"); got != "-tmp-leadin-run-a1-b-c--" {
+		t.Fatalf("dirName = %q", got)
+	}
+	workdir := t.TempDir()
+	config := filepath.Join("home", ".claude")
+	got := ProjectDirs(workdir, config)
+	if !slices.Contains(got, filepath.Join(config, "projects", dirName(workdir))) {
+		t.Fatalf("ProjectDirs = %v", got)
+	}
+}
+
+func TestRunDirNamesFollowSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	realPath, _ := filepath.EvalSymlinks(real)
+	got := ProjectDirs(link, "cfg")
+	want := []string{filepath.Join("cfg", "projects", dirName(link)), filepath.Join("cfg", "projects", dirName(realPath))}
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("ProjectDirs = %v, want %v", got, want)
+	}
+	tasks := TaskOutputDirs(link)
+	if len(tasks) != 2 || filepath.Base(filepath.Dir(tasks[0])) != "claude-"+strconv.Itoa(os.Getuid()) {
+		t.Fatalf("TaskOutputDirs = %v", tasks)
+	}
+}
+
+func TestRemoveRunDirsRemovesOnlyTheRunFolders(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no task output folders on Windows")
+	}
+	t.Setenv("TMPDIR", t.TempDir())
+	workdir, err := os.MkdirTemp("", "leadin-run-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := t.TempDir()
+	dirs := append(ProjectDirs(workdir, config), TaskOutputDirs(workdir)...)
+	other := filepath.Join(config, "projects", "-home-someone-project")
+	for _, dir := range append(dirs, other) {
+		if err := os.MkdirAll(filepath.Join(dir, "s", "tool-results"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	RemoveRunDirs(workdir, config)
+	for _, dir := range dirs {
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			t.Errorf("%s still there", dir)
+		}
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Errorf("another project folder was removed: %v", err)
 	}
 }

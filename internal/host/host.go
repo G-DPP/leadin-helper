@@ -12,10 +12,12 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"time"
 
 	"leadin-helper/internal/claude"
 	"leadin-helper/internal/logs"
 	"leadin-helper/internal/protocol"
+	"leadin-helper/internal/run"
 	"leadin-helper/internal/version"
 )
 
@@ -84,7 +86,7 @@ func Serve(r io.Reader, w io.Writer, logger *logs.Logger) (code int) {
 
 	action, _ = request["action"].(string)
 	if action == "start_run" {
-		return startRun(w, logger)
+		return startRun(request, r, w, logger)
 	}
 	handler, ok := actions[action]
 	if !ok {
@@ -98,11 +100,23 @@ func Serve(r io.Reader, w io.Writer, logger *logs.Logger) (code int) {
 	return 0
 }
 
-// startRun is not implemented yet: the run ends at once with a clean error,
-// so the dashboard does not wait for it.
-func startRun(w io.Writer, logger *logs.Logger) int {
-	logger.Event(logs.Info, map[string]any{"action": "start_run", "outcome": "error", "error": "not_implemented"})
-	return reply(w, logger, "start_run", protocol.RunFailed("unknown", nil))
+// startRun checks the request and executes the run. r is the rest of stdin:
+// its end cancels the run.
+func startRun(request map[string]any, r io.Reader, w io.Writer, logger *logs.Logger) int {
+	started := time.Now()
+	start, ok := run.ParseStart(request)
+	if !ok {
+		// No run_id in the log: it is not validated.
+		code := reply(w, logger, "start_run", protocol.RunFailed("invalid_request", nil))
+		logger.Event(logs.Info, map[string]any{"action": "start_run", "outcome": "error", "error": "invalid_request"})
+		return code
+	}
+	fields := run.Run(start, r, w, logger)
+	fields["action"] = "start_run"
+	fields["run_id"] = start.RunID
+	fields["duration_ms"] = time.Since(started).Milliseconds()
+	logger.Event(logs.Info, fields)
+	return 0
 }
 
 // reply writes message; if it cannot, it logs the failure and tries a

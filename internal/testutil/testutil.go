@@ -19,12 +19,23 @@ type FakeConfig struct {
 	Auth         string `json:"auth,omitempty"`
 	AuthExitCode int    `json:"auth_exit_code,omitempty"`
 	Record       string `json:"record,omitempty"`
+	Fixture      string `json:"fixture,omitempty"`
+	DelayMS      int    `json:"delay_ms,omitempty"`
+	Child        string `json:"child,omitempty"`
+	Project      bool   `json:"project,omitempty"`
 }
 
-// Call is one recorded invocation of the fake claude.
+// Call is one recorded invocation of the fake claude. Stdin, Cwd, Files,
+// MCPMode (octal), MCPConfig and Agents are recorded for runs (-p) only.
 type Call struct {
-	Args []string `json:"args"`
-	Env  []string `json:"env"`
+	Args      []string `json:"args"`
+	Env       []string `json:"env"`
+	Stdin     string   `json:"stdin"`
+	Cwd       string   `json:"cwd"`
+	Files     []string `json:"files"`
+	MCPMode   string   `json:"mcp_mode"`
+	MCPConfig string   `json:"mcp_config"`
+	Agents    string   `json:"agents"`
 }
 
 var (

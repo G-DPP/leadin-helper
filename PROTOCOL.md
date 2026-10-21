@@ -175,8 +175,29 @@ never leaves the helper.
 ### Cancelling
 
 The extension cancels a run by closing the port. The helper sees stdin
-close, stops `claude` and all its child processes, cleans up and exits
-without replying.
+close, stops `claude` and all its child processes (SIGTERM to the process
+group, SIGKILL after 3 seconds), cleans up and exits without replying. After
+the cancellation no more `run_progress` is sent.
+
+### Timeout
+
+A run lasts at most 3 hours, whatever the spec says. Beyond that the helper
+stops `claude` as for a cancellation and sends `run_failed` with `timeout`
+and the versions.
+
+### Example
+
+A run with two tool calls, as the extension receives it:
+
+```json
+{"type": "run_progress", "key": "started", "count": 1}
+{"type": "run_progress", "key": "item_saved", "count": 1}
+{"type": "run_finished", "outcome": "done", "message": "Stored.", "result_id": 42, "duration_ms": 18250, "num_turns": 5, "cost_usd": 0.08, "usage": {"usage": {}, "modelUsage": {}}, "claude_version": "2.1.300", "subscription_type": "pro", "helper_version": "1.0.0"}
+```
+
+With subagents, `usage` also carries Claude Code's `subagent_stats`
+(how many were spawned, and how): counters only. `duration_ms` and
+`num_turns` are summed over every turn of the main agent.
 
 ## `error`
 

@@ -3,7 +3,10 @@ package host
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -163,16 +166,93 @@ func TestEmptyStreamExitsWithoutReply(t *testing.T) {
 	}
 }
 
-func TestStartRunFailsCleanlyForNow(t *testing.T) {
-	code, reply, logText := serve(t, request(t, map[string]any{
-		"action": "start_run", "run_id": 7, "ticket": strings.Repeat("a", 32), "server_url": "https://example.com",
+const testTicket = "tkt_" + "example0123456789abcdef"
+
+const testToken = "tok_" + "example" + "0123456789abcdef"
+
+func TestInvalidStartRunIsInvalidRequest(t *testing.T) {
+	path := testutil.BuildFakeClaude(t)
+	record := filepath.Join(t.TempDir(), "calls.jsonl")
+	testutil.WriteFakeConfig(t, path, testutil.FakeConfig{Version: "2.1.300", Auth: `{"loggedIn": true}`, Record: record})
+	isolate(t, filepath.Dir(path))
+	for _, message := range []map[string]any{
+		{"action": "start_run", "run_id": 7, "ticket": testTicket, "server_url": "https://example.com", "mcp_token": testToken},
+		{"action": "start_run", "run_id": 0, "ticket": testTicket, "server_url": "https://example.com"},
+		{"action": "start_run", "run_id": 7, "ticket": "short", "server_url": "https://example.com"},
+		{"action": "start_run", "run_id": 7, "ticket": testTicket, "server_url": "http://example.com"},
+	} {
+		code, reply, logText := serve(t, request(t, message))
+		if code != 0 {
+			t.Fatalf("exit code %d", code)
+		}
+		assertReply(t, reply, map[string]any{"type": "run_failed", "code": "invalid_request", "helper_version": version.Version})
+		if !strings.HasSuffix(logText, " INFO action=start_run outcome=error error=invalid_request\n") {
+			t.Fatalf("log = %q", logText)
+		}
+		for _, secret := range []string{testTicket, testToken, "example.com", "run_id"} {
+			if strings.Contains(logText, secret) {
+				t.Fatalf("%q in the log %q", secret, logText)
+			}
+		}
+	}
+	if _, err := os.Stat(record); !os.IsNotExist(err) {
+		t.Fatal("claude was called")
+	}
+}
+
+func TestStartRunRunsClaudeAndLogsTheOutcome(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("runs are checked on Unix")
+	}
+	path := testutil.BuildFakeClaude(t)
+	fixture, _ := filepath.Abs(filepath.Join("..", "stream", "testdata", "run_basic.jsonl"))
+	testutil.WriteFakeConfig(t, path, testutil.FakeConfig{Version: "2.1.300", Auth: `{"loggedIn": true, "subscriptionType": "pro"}`, Fixture: fixture})
+	isolate(t, filepath.Dir(path))
+	t.Setenv("TMPDIR", t.TempDir())
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"run_id": 7, "mcp_url": server.URL + "/mcp", "mcp_token": testToken, "model": "sonnet",
+			"prompt": "Call `start_example`.", "tools": []string{"WebSearch"},
+			"progress_map": map[string]string{"store_item": "item_saved"},
+			"outcomes":     []string{"done", "failed"}, "result_id_key": "item_id", "failure_message": "Failed.",
+		})
 	}))
-	if code != 0 {
+	defer server.Close()
+
+	// stdin stays open after the request until the run is over: its end
+	// would cancel the run.
+	pipeRead, pipeWrite := io.Pipe()
+	defer pipeWrite.Close()
+	in := io.MultiReader(request(t, map[string]any{"action": "start_run", "run_id": 7, "ticket": testTicket, "server_url": server.URL}), pipeRead)
+	logPath := filepath.Join(t.TempDir(), "helper.log")
+	var out bytes.Buffer
+	if code := Serve(in, &out, logs.New(logPath)); code != 0 {
 		t.Fatalf("exit code %d", code)
 	}
-	assertReply(t, reply, map[string]any{"type": "run_failed", "code": "unknown", "helper_version": version.Version})
-	if !strings.Contains(logText, "action=start_run outcome=error error=not_implemented") || strings.Contains(logText, "example.com") {
+	var types []string
+	var last map[string]any
+	for out.Len() > 0 {
+		message, err := protocol.ReadMessage(&out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		types = append(types, message["type"].(string))
+		last = message
+	}
+	if strings.Join(types, ",") != "run_progress,run_progress,run_progress,run_progress,run_finished" || last["outcome"] != "done" {
+		t.Fatalf("types %v, last %v", types, last)
+	}
+	logText, _ := os.ReadFile(logPath)
+	lines := strings.Split(strings.TrimSpace(string(logText)), "\n")
+	final := lines[len(lines)-1]
+	if !strings.Contains(final, " INFO action=start_run run_id=7 result_id=42 duration_ms=") || !strings.HasSuffix(final, " outcome=done") {
 		t.Fatalf("log = %q", logText)
+	}
+	for _, secret := range []string{testTicket, testToken, "127.0.0.1", "start_example", "store_item"} {
+		if strings.Contains(string(logText), secret) {
+			t.Fatalf("%q in the log %q", secret, logText)
+		}
 	}
 }
 
