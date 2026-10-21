@@ -5,6 +5,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# The exact Go of the release builds (scripts/build-release.sh): Go downloads
+# it if the local one is different.
+export GOTOOLCHAIN=go1.27.2
+
 unformatted="$(gofmt -l .)"
 if [[ -n "$unformatted" ]]; then
 	echo "gofmt: these files need formatting:" >&2

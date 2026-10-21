@@ -107,6 +107,55 @@ of its own:
 A helper built by someone else, without an account, can do exactly what
 this one does: start Claude Code with a ticket it cannot get.
 
+## Downloads
+
+Each release has these files (`X.Y.Z` is the version):
+
+| Your computer | Take this file |
+|---|---|
+| Mac with Apple chip (M1 or later) | `leadin-helper_X.Y.Z_darwin_arm64.zip` |
+| Mac with Intel chip | `leadin-helper_X.Y.Z_darwin_amd64.zip` |
+| Linux | `leadin-helper_X.Y.Z_linux_amd64.zip` |
+| Windows | `leadin-helper_X.Y.Z_windows_amd64.exe` |
+
+On macOS and Linux the zip holds a single file, `leadin-helper`, already
+marked as a program (a browser saves a bare binary without that mark). On
+Windows the `.exe` is all you need. The LeadIn tutorial says what to do
+next.
+
+The same binaries are also in the release without a zip
+(`leadin-helper_X.Y.Z_<os>_<arch>`): they are for those who install from a
+terminal or want to compare the hashes. `SHA256SUMS` lists the hash of every
+file.
+
+To see which version you have:
+
+```bash
+leadin-helper --version
+# leadin-helper 0.6.0 (protocol 2, linux/amd64)
+```
+
+## Verify a release
+
+Check that the files you downloaded are the ones of the release, from the
+folder where they are:
+
+```bash
+sha256sum -c --ignore-missing SHA256SUMS
+```
+
+Check that the release really comes from this code: this rebuilds the tag
+`vX.Y.Z` in a temporary folder and compares every hash.
+
+```bash
+git clone <this repository> && cd leadin-helper
+scripts/verify-release.sh X.Y.Z <URL of the release's SHA256SUMS>
+```
+
+Every file must print `OK`. You need `git`, `bash`, `zip`, `curl` and any
+version of [Go](https://go.dev/dl/): the script downloads Go 1.27.2, the
+one the releases are built with.
+
 ## Build
 
 You need [Go](https://go.dev/dl/) 1.27.2 or later.
@@ -122,6 +171,23 @@ and a build for each target in `dist/`):
 ./scripts/check.sh
 ```
 
+The files of a release, in `dist/release/`, from a commit with no local
+changes:
+
+```bash
+scripts/build-release.sh X.Y.Z
+```
+
+The build is reproducible: the same commit always gives the same files.
+For this the script fixes the Go version (`GOTOOLCHAIN=go1.27.2`), builds
+without C code (`CGO_ENABLED=0`), drops the paths of the machine
+(`-trimpath`) and the build identifier (`-buildid=`), and gives the files in
+the zips the date of the commit.
+
+The binaries are **not code-signed**. The first time you open one, macOS
+and Windows warn that it comes from an unidentified developer; the LeadIn
+tutorial shows how to go ahead.
+
 ## Updating
 
 The helper tells the server its version and protocol version when it
@@ -130,7 +196,7 @@ redeems a ticket. If the server needs a newer helper, the run stops with
 version it asks for and register it again. Nothing updates by itself.
 
 A build from source is version `0.0.0-dev` (release builds set the version,
-see `internal/version`). A server that sets a minimum version turns it down;
+see `scripts/build-release.sh`). A server that sets a minimum version turns it down;
 a local development server has no minimum, so it accepts it.
 
 ## Where the log is
