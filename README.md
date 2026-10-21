@@ -122,6 +122,17 @@ and a build for each target in `dist/`):
 ./scripts/check.sh
 ```
 
+## Updating
+
+The helper tells the server its version and protocol version when it
+redeems a ticket. If the server needs a newer helper, the run stops with
+`helper_outdated` and the LeadIn website asks you to update: download the
+version it asks for and register it again. Nothing updates by itself.
+
+A build from source is version `0.0.0-dev` (release builds set the version,
+see `internal/version`). A server that sets a minimum version turns it down;
+a local development server has no minimum, so it accepts it.
+
 ## Where the log is
 
 | OS | Path |

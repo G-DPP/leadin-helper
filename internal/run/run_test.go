@@ -21,6 +21,7 @@ import (
 	"leadin-helper/internal/logs"
 	"leadin-helper/internal/protocol"
 	"leadin-helper/internal/testutil"
+	"leadin-helper/internal/version"
 )
 
 func TestMain(m *testing.M) {
@@ -302,6 +303,8 @@ func TestRedeemErrorsStopBeforeLookingForClaude(t *testing.T) {
 		code   string
 	}{
 		{http.StatusNotFound, `{"code": "invalid_ticket"}`, "ticket_rejected"},
+		{http.StatusConflict, `{"code": "helper_outdated", "min_version": "9.0.0"}`, "helper_outdated"},
+		{http.StatusConflict, `{"detail": "already finished"}`, "server_error"},
 		{http.StatusInternalServerError, `{}`, "server_error"},
 		{http.StatusFound, `{}`, "server_error"},
 		{http.StatusOK, `not json`, "server_error"},
@@ -402,7 +405,8 @@ func TestRunForwardsProgressAndFinalEvent(t *testing.T) {
 	if len(e.server.requests) != 1 || e.server.paths[0] != "/api/v1/claude-runs/redeem/" {
 		t.Fatalf("requests = %v %v", e.server.paths, e.server.requests)
 	}
-	if body := e.server.requests[0]; len(body) != 2 || body["run_id"] != 7.0 || body["ticket"] != testTicket {
+	if body := e.server.requests[0]; len(body) != 4 || body["run_id"] != 7.0 || body["ticket"] != testTicket ||
+		body["helper_version"] != version.Version || body["protocol_version"] != float64(version.ProtocolVersion) {
 		t.Fatalf("redeem body = %v", body)
 	}
 	types := r.types()

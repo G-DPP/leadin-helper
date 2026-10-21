@@ -6,7 +6,9 @@
 // (POST {server_url}/api/v1/claude-runs/redeem/): URL and token of the MCP
 // server, model, prompt, tools, subagents, progress map and the outcomes
 // allowed in Claude's last line. The ticket is valid once and for a few
-// seconds, so it is redeemed first, before even looking for claude.
+// seconds, so it is redeemed first, before even looking for claude. The
+// redeem also carries the helper version and the protocol version: the server
+// turns down helpers that are too old (helper_outdated).
 //
 // The helper knows nothing about what a run does: it executes the spec it
 // gets. It accepts the spec only if it narrows what the helper can do, never
@@ -41,6 +43,10 @@ const (
 	// character of the prompt and of the subagents escaped as \uXXXX, is
 	// below 3 MB.
 	MaxRedeemBody = 8 << 20
+	// MaxErrorBody bounds the body of a 409: enough for the error code.
+	MaxErrorBody = 64 << 10
+	// HelperOutdated is the code of a 409 for a helper that is too old.
+	HelperOutdated = "helper_outdated"
 )
 
 // localHosts are the only hosts allowed over plain http.
@@ -113,11 +119,18 @@ var client = &http.Client{
 // Validate. Numbers are decoded as json.Number.
 //
 // Errors are *RedeemError with ticket_rejected (404: the ticket is expired,
-// already used or wrong; the server does not say which), server_unreachable
-// (network, TLS, timeout) or server_error (any other answer, redirects
-// included, and invalid JSON).
+// already used or wrong; the server does not say which), helper_outdated
+// (409 with that code: the ticket was good, but this helper is too old or
+// speaks another protocol), server_unreachable (network, TLS, timeout) or
+// server_error (any other answer, redirects and other 409s included, and
+// invalid JSON).
 func Redeem(ctx context.Context, serverURL string, runID int64, ticket string) (map[string]any, error) {
-	body, err := json.Marshal(map[string]any{"run_id": runID, "ticket": ticket})
+	body, err := json.Marshal(map[string]any{
+		"run_id":           runID,
+		"ticket":           ticket,
+		"helper_version":   version.Version,
+		"protocol_version": version.ProtocolVersion,
+	})
 	if err != nil {
 		return nil, &RedeemError{"server_error"}
 	}
@@ -134,6 +147,9 @@ func Redeem(ctx context.Context, serverURL string, runID int64, ticket string) (
 		return nil, &RedeemError{"server_unreachable"}
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusConflict {
+		return nil, &RedeemError{conflictCode(response.Body)}
+	}
 	payload, err := io.ReadAll(io.LimitReader(response.Body, MaxRedeemBody+1))
 	if response.StatusCode == http.StatusNotFound {
 		return nil, &RedeemError{"ticket_rejected"}
@@ -161,4 +177,20 @@ func Redeem(ctx context.Context, serverURL string, runID int64, ticket string) (
 		return nil, &RedeemError{"server_error"}
 	}
 	return data, nil
+}
+
+// conflictCode is the run_failed code for a 409: helper_outdated if the body
+// says so, server_error otherwise.
+func conflictCode(body io.Reader) string {
+	payload, err := io.ReadAll(io.LimitReader(body, MaxErrorBody))
+	if err != nil {
+		return "server_error"
+	}
+	var data struct {
+		Code string `json:"code"`
+	}
+	if json.Unmarshal(payload, &data) != nil || data.Code != HelperOutdated {
+		return "server_error"
+	}
+	return HelperOutdated
 }

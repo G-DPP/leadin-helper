@@ -81,11 +81,27 @@ First of all, because the ticket expires quickly:
 POST {server_url}/api/v1/claude-runs/redeem/
 Content-Type: application/json
 
-{"run_id": 7, "ticket": "…"}
+{"run_id": 7, "ticket": "…", "helper_version": "1.0.0", "protocol_version": 2}
 ```
 
 Redirects are not followed. A 404 means the ticket is expired, already used
-or wrong (`ticket_rejected`).
+or wrong (`ticket_rejected`): the server always gives the same answer, and
+checks the ticket before anything else.
+
+With a good ticket, the server also checks the helper. If `helper_version` is
+below the server's minimum, or `protocol_version` is not the one it expects
+(older or newer), it answers:
+
+```
+409 Conflict
+
+{"code": "helper_outdated", "min_version": "1.2.0"}
+```
+
+`min_version` is `null` when the server has no minimum and only the protocol
+did not match. The run is already closed on the server and the ticket is
+spent: the helper reports `helper_outdated` and does not look for `claude`.
+Any other 409 is `server_error`.
 
 ### The run spec
 
@@ -154,8 +170,9 @@ is the spec's `failure_message`.
 |---|---|
 | `invalid_request` | the `start_run` request is not valid |
 | `ticket_rejected` | the server rejected the ticket (404): expired, already used or wrong |
+| `helper_outdated` | the server turned down this helper (409): too old or another protocol; it must be updated |
 | `server_unreachable` | the server does not answer (network, timeout, TLS) |
-| `server_error` | the server answered with another error, a redirect or invalid JSON |
+| `server_error` | the server answered with another error (a 409 without `helper_outdated` too), a redirect or invalid JSON |
 | `invalid_spec` | the run spec breaks the constraints above |
 | `claude_not_found` | `claude` is not installed |
 | `claude_too_old` | `claude --version` is older than 2.1.248, which has no `--restricted` |
@@ -166,7 +183,7 @@ is the spec's `failure_message`.
 | `api_error` | Claude stopped on an API error (network, server, model) |
 | `unknown` | no `result` event, or any other error |
 
-The versions are present when known (not in the four redeem errors, which
+The versions are present when known (not in the five redeem errors, which
 happen before looking for `claude`). When `claude` ended with an error
 `result`, the event also carries `duration_ms`, `num_turns`, `cost_usd` and
 `usage`: an interrupted run has still consumed usage. Claude's error text

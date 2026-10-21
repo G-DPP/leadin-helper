@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"leadin-helper/internal/version"
 )
 
 const testTicket = "tkt_" + "example0123456789abcdef"
@@ -91,8 +93,27 @@ func TestRedeemReturnsSpecOfServer(t *testing.T) {
 	if request.Path != RedeemPath || request.ContentType != "application/json" || request.Accept != "application/json" || !strings.HasPrefix(request.UserAgent, "leadin-helper/") {
 		t.Fatalf("request = %+v", request)
 	}
-	if len(request.Body) != 2 || request.Body["run_id"] != 7.0 || request.Body["ticket"] != testTicket {
+	if len(request.Body) != 4 || request.Body["run_id"] != 7.0 || request.Body["ticket"] != testTicket {
 		t.Fatalf("body = %v", request.Body)
+	}
+	if request.Body["helper_version"] != version.Version || request.Body["protocol_version"] != float64(version.ProtocolVersion) {
+		t.Fatalf("body = %v", request.Body)
+	}
+}
+
+func TestRedeem409HelperOutdated(t *testing.T) {
+	fake := newFakeServer(t, http.StatusConflict, `{"code": "helper_outdated", "min_version": "9.0.0"}`, nil)
+	if code := redeemCode(t, fake.URL); code != "helper_outdated" {
+		t.Fatalf("code = %s", code)
+	}
+}
+
+func TestRedeemOther409IsServerError(t *testing.T) {
+	for _, body := range []string{`{"detail": "already finished"}`, `{"code": "other"}`, `<html>`, `[1]`, `"helper_outdated"`} {
+		fake := newFakeServer(t, http.StatusConflict, body, nil)
+		if code := redeemCode(t, fake.URL); code != "server_error" {
+			t.Errorf("%s: code = %s", body, code)
+		}
 	}
 }
 
