@@ -42,6 +42,10 @@ const MaxRunDuration = 3 * time.Hour
 // maxRunDuration is MaxRunDuration; only the tests shorten it.
 var maxRunDuration = MaxRunDuration
 
+// afterStart runs once claude has started and is getting the prompt; only the
+// tests set it, to check the cleanup after a panic.
+var afterStart = func() {}
+
 // Run executes the run of req, writing the events to out. stdin is the rest
 // of the helper's stdin: its EOF cancels the run. It returns the fields for
 // the log (outcome, error, result_id).
@@ -151,6 +155,7 @@ func execute(req StartRequest, runSpec spec.RunSpec, path string, env []string, 
 		_, _ = stdinPipe.Write(userMessage(runSpec.Prompt))
 		_ = stdinPipe.Close()
 	}()
+	afterStart()
 
 	reader := stream.NewReader(runSpec.ProgressMap, runSpec.Outcomes, runSpec.ResultIDKey, runSpec.FailureMessage)
 	lines := bufio.NewReader(stdout)

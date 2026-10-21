@@ -14,9 +14,16 @@ the Claude Code you have already installed.
 4. It tells the extension how the run is going (only neutral step names and
    counters) and how it ended.
 
-**Status:** in development. `get_info` and `start_run` work on Linux and
-macOS; on Windows the helper builds, but it is not tested there yet, and a
-cancelled run stops Claude Code but not the processes it started.
+**Status:** in development.
+
+- **Linux:** verified, also with the LeadIn dashboard.
+- **macOS:** builds and passes the tests, not yet tried with the dashboard.
+- **Windows:** builds and passes `go vet`, but it has **not been run on
+  Windows yet**. There Claude Code runs in a job object, so cancelling a run
+  stops it with every process it started; the test of this
+  (`internal/proc/proc_windows_test.go`) will run in the release CI.
+- Automatic registration with the browser and signed-off releases are on
+  the way. For now the helper is built from source.
 
 The browser starts the helper through Chrome's
 [Native Messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging).
@@ -28,21 +35,26 @@ These limits are written in the code. Even if the LeadIn server asked for
 something else, the helper would refuse: it never touches your files or your
 terminal.
 
-| Limit | Where in the code |
-|---|---|
-| Claude Code starts only in a new, empty temporary folder (`leadin-run-…`), deleted at the end in every case. | [`internal/run/run.go`](internal/run/run.go) |
-| At most these tools: `WebSearch`, `WebFetch`, `Agent` and the LeadIn MCP server alone. Never files or a terminal (`Bash`, `Read`, `Write`, `Edit`…). The server can only narrow this list. | [`internal/spec/spec.go`](internal/spec/spec.go), [`internal/claude/command.go`](internal/claude/command.go) |
-| Subagents get at most `WebSearch`, `WebFetch` and the LeadIn MCP server, never `Agent`, and no fields beyond description, prompt, tools and model. | [`internal/spec/spec.go`](internal/spec/spec.go) |
-| The model is `sonnet`, `opus` or `haiku`. | [`internal/spec/spec.go`](internal/spec/spec.go) |
-| The MCP server must be on the same address as the LeadIn server, over `https` (`http` only on this computer). | [`internal/spec/redeem.go`](internal/spec/redeem.go), [`internal/spec/spec.go`](internal/spec/spec.go) |
-| The ticket goes only to the LeadIn server the extension is configured for: redirects are not followed. | [`internal/spec/redeem.go`](internal/spec/redeem.go) |
-| The prompt and the token are never in the command line, which any program can see: the prompt goes through stdin, the token into a file only you can read (`mcp.json`, permissions `0600`). | [`internal/run/run.go`](internal/run/run.go), [`internal/claude/files.go`](internal/claude/files.go) |
-| None of your personal Claude Code configuration (hooks, `CLAUDE.md`, plugins, skills, agents, other MCP servers, `env` settings) applies to a run. | [`internal/claude/command.go`](internal/claude/command.go) (`--restricted`, `--strict-mcp-config`) |
-| Claude Code gets only a short list of environment variables: never `ANTHROPIC_*` or `CLAUDE_*`, so an API key left in your shell is not used. | [`internal/claude/env.go`](internal/claude/env.go) |
-| A run stops after at most 3 hours. | [`internal/run/run.go`](internal/run/run.go) (`MaxRunDuration`) |
-| Cancelling a run stops Claude Code and every process it started. | [`internal/proc/`](internal/proc/) |
-| Only neutral step names and counters reach the browser: never tool names, inputs, results or Claude's text. | [`internal/stream/stream.go`](internal/stream/stream.go) |
-| The local log holds only times, actions, outcomes and identifiers: never prompts, Claude's text, tokens or your email address. | [`internal/logs/logs.go`](internal/logs/logs.go) |
+Each limit has a test, named in the last column. Unless another file is
+given, it is in [`internal/run/constraints_test.go`](internal/run/constraints_test.go):
+those tests run the whole helper with a fake server and a fake Claude Code,
+and check the limit from the outside.
+
+| Limit | Where in the code | Test |
+|---|---|---|
+| Claude Code starts only in a new, empty temporary folder (`leadin-run-…`), deleted at the end in every case. | [`internal/run/run.go`](internal/run/run.go) | `TestRunsInEmptyTemporaryDirectory`, `TestTemporaryDirectoryIsRemovedAfterSuccess`, `…AfterFailure`, `…AfterCancel`, `…AfterTimeout`, `…AfterPanic` |
+| At most these tools: `WebSearch`, `WebFetch`, `Agent` and the LeadIn MCP server alone. Never files or a terminal (`Bash`, `Read`, `Write`, `Edit`…). The server can only narrow this list. | [`internal/spec/spec.go`](internal/spec/spec.go), [`internal/claude/command.go`](internal/claude/command.go) | `TestOnlyAllowedBuiltinToolsReachClaude`, `TestSpecWithBashIsRejected`, `TestSpecWithReadWriteEditIsRejected` |
+| Subagents get at most `WebSearch`, `WebFetch` and the LeadIn MCP server, never `Agent`, and no fields beyond description, prompt, tools and model. | [`internal/spec/spec.go`](internal/spec/spec.go) | `TestSubagentToolsAreLimited`, `TestSubagentWithAgentToolIsRejected` |
+| The model is `sonnet`, `opus` or `haiku`. | [`internal/spec/spec.go`](internal/spec/spec.go) | `TestInvalidSpecNeverStartsClaude` (in `run_test.go`) |
+| Only the LeadIn MCP server, on the same address as the LeadIn server, over `https` (`http` only on this computer). | [`internal/spec/redeem.go`](internal/spec/redeem.go), [`internal/spec/spec.go`](internal/spec/spec.go) | `TestOnlyLeadinMCPServerIsConfigured`, `TestMCPOnOtherOriginIsRejected`, `TestPlainHTTPRemoteMCPIsRejected` |
+| The ticket goes only to the LeadIn server the extension is configured for: redirects are not followed. | [`internal/spec/redeem.go`](internal/spec/redeem.go) | `TestRedeemDoesNotFollowRedirects` (in `internal/spec/redeem_test.go`) |
+| The prompt and the token are never in the command line, which any program can see: the prompt goes through stdin, the token into a file only you can read (`mcp.json`, permissions `0600`). | [`internal/run/run.go`](internal/run/run.go), [`internal/claude/files.go`](internal/claude/files.go) | `TestPromptIsNeverInArguments`, `TestTokenIsNeverInArguments`, `TestTokenFileIsOwnerOnly` |
+| Claude Code keeps no transcript of the run. | [`internal/claude/command.go`](internal/claude/command.go) (`--no-session-persistence`) | `TestSessionIsNotPersisted` |
+| None of your personal Claude Code configuration (hooks, `CLAUDE.md`, plugins, skills, agents, other MCP servers, `env` settings) applies to a run. Claude Code gets only a short list of environment variables: never `ANTHROPIC_*` or `CLAUDE_*`, so an API key left in your shell is not used. | [`internal/claude/command.go`](internal/claude/command.go) (`--restricted`, `--strict-mcp-config`), [`internal/claude/env.go`](internal/claude/env.go) | `TestPersonalConfigurationIsExcluded` |
+| A run stops after at most 3 hours. | [`internal/run/run.go`](internal/run/run.go) (`MaxRunDuration`) | `TestRunCannotOutliveMaxDuration` |
+| Cancelling a run stops Claude Code and every process it started. | [`internal/proc/`](internal/proc/) | `TestTemporaryDirectoryIsRemovedAfterCancel`; the process tree in `internal/proc/` |
+| Only neutral step names and counters reach the browser: never tool names, inputs, results or Claude's text. The local log holds only times, actions, outcomes and identifiers: never prompts, Claude's text, tokens or your email address. | [`internal/stream/stream.go`](internal/stream/stream.go), [`internal/logs/logs.go`](internal/logs/logs.go) | `TestLogHasNoPromptTokenOrToolNames` |
+| What Claude Code writes for the run in `~/.claude/projects/` and in `$TMPDIR/claude-<uid>/` is removed; the folders of your other projects are not touched. | [`internal/claude/cleanup.go`](internal/claude/cleanup.go) | `TestRunDirectoriesAreRemoved` |
 
 ## The commands it runs
 

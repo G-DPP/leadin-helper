@@ -321,10 +321,8 @@ func TestRedeemErrorsStopBeforeLookingForClaude(t *testing.T) {
 
 func TestInvalidSpecNeverStartsClaude(t *testing.T) {
 	for name, edit := range map[string]func(map[string]any){
-		"unknown model":  func(s map[string]any) { s["model"] = "gpt-5" },
-		"Bash":           func(s map[string]any) { s["tools"] = []any{"Bash"} },
-		"another origin": func(s map[string]any) { s["mcp_url"] = "http://127.0.0.1:1/mcp" },
-		"another run":    func(s map[string]any) { s["run_id"] = 8 },
+		"unknown model": func(s map[string]any) { s["model"] = "gpt-5" },
+		"another run":   func(s map[string]any) { s["run_id"] = 8 },
 	} {
 		e := newEnv(t)
 		edit(e.server.spec)
@@ -433,21 +431,14 @@ func TestRunForwardsProgressAndFinalEvent(t *testing.T) {
 	e.assertNoLeftovers()
 }
 
-func TestCommandComesFromSpecWithoutSecretsInArguments(t *testing.T) {
+// The guarantees on the command (prompt and token out of the arguments,
+// --restricted, --strict-mcp-config…) are in constraints_test.go.
+func TestCommandComesFromSpec(t *testing.T) {
 	skipOnWindows(t)
 	e := newEnv(t)
 	e.server.spec["model"] = "opus"
 	e.run(0)
 	call := e.runCall()
-	arguments := strings.Join(call.Args, " ")
-	for _, secret := range []string{testToken, testTicket, "example.com", "start_example"} {
-		if strings.Contains(arguments, secret) {
-			t.Errorf("%q in the arguments", secret)
-		}
-	}
-	if argAfter(call.Args, "--model") != "opus" || !slices.Contains(call.Args, "--strict-mcp-config") || !slices.Contains(call.Args, "--no-session-persistence") {
-		t.Fatalf("args = %v", call.Args)
-	}
 	// The same command as the earlier helper, argument by argument.
 	mcpConfig := argAfter(call.Args, "--mcp-config")
 	want := []string{
@@ -459,12 +450,12 @@ func TestCommandComesFromSpecWithoutSecretsInArguments(t *testing.T) {
 	if !slices.Equal(call.Args, want) || mcpConfig != filepath.Join(call.Cwd, "mcp.json") {
 		t.Fatalf("args = %q", call.Args)
 	}
-	// The spec's prompt arrives on stdin, as is.
+	// The spec's prompt arrives on stdin as one user message.
 	var message map[string]any
 	if err := json.Unmarshal([]byte(call.Stdin), &message); err != nil {
 		t.Fatal(err)
 	}
-	if message["type"] != "user" || message["message"].(map[string]any)["content"] != testPrompt {
+	if message["type"] != "user" || message["message"].(map[string]any)["role"] != "user" {
 		t.Fatalf("stdin = %q", call.Stdin)
 	}
 	// The token is only in mcp.json, with the spec's URL.
@@ -475,69 +466,6 @@ func TestCommandComesFromSpecWithoutSecretsInArguments(t *testing.T) {
 	server := config["mcpServers"]["leadin"]
 	if server["url"] != e.server.URL+"/mcp" || server["headers"].(map[string]any)["Authorization"] != "Bearer "+testToken {
 		t.Fatalf("mcp.json = %s", call.MCPConfig)
-	}
-}
-
-func TestMCPConfigIsPrivateInAnEmptyFolder(t *testing.T) {
-	skipOnWindows(t)
-	e := newEnv(t)
-	e.run(0)
-	call := e.runCall()
-	if call.MCPMode != "600" || !slices.Equal(call.Files, []string{"mcp.json"}) {
-		t.Fatalf("mode %s, files %v", call.MCPMode, call.Files)
-	}
-	if !strings.HasPrefix(filepath.Base(call.Cwd), "leadin-run-") || filepath.Dir(call.Cwd) != e.tmp {
-		t.Fatalf("cwd = %s", call.Cwd)
-	}
-}
-
-func TestWorkdirRemovedAfterRun(t *testing.T) {
-	skipOnWindows(t)
-	e := newEnv(t)
-	e.run(0)
-	if _, err := os.Stat(e.runCall().Cwd); !os.IsNotExist(err) {
-		t.Fatalf("workdir still there: %v", err)
-	}
-	e.assertNoLeftovers()
-}
-
-func TestClaudeRunFoldersRemovedAfterRun(t *testing.T) {
-	skipOnWindows(t)
-	e := newEnv(t)
-	e.config.Project = true
-	e.run(0)
-	projects, err := os.ReadDir(filepath.Join(e.home, ".claude", "projects"))
-	if err != nil {
-		t.Fatalf("the fake claude made no project folder: %v", err)
-	}
-	if len(projects) != 0 {
-		t.Fatalf("projects = %v", projects)
-	}
-	tasks, err := os.ReadDir(filepath.Join(e.tmp, "claude-"+strconv.Itoa(os.Getuid())))
-	if err != nil || len(tasks) != 0 {
-		t.Fatalf("task output folders = %v, %v", tasks, err)
-	}
-	e.assertNoLeftovers()
-}
-
-func TestClaudeGetsOnlyAllowedEnvironment(t *testing.T) {
-	skipOnWindows(t)
-	e := newEnv(t)
-	for _, name := range []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_SAFE_MODE", "ANYTHING"} {
-		t.Setenv(name, "1")
-	}
-	r := e.run(0)
-	if r.last()["type"] != "run_finished" {
-		t.Fatalf("events = %v", r.events)
-	}
-	call := e.runCall()
-	for _, name := range []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_SAFE_MODE", "ANYTHING", "CLAUDE_CONFIG_DIR"} {
-		if slices.Contains(call.Env, name) {
-			t.Errorf("%s reached claude", name)
-		}
-	}
-	if !slices.Contains(call.Env, "HOME") || !slices.Equal(call.Args[:2], []string{"-p", "--restricted"}) {
-		t.Fatalf("env %v, args %v", call.Env, call.Args)
 	}
 }
 
@@ -778,29 +706,6 @@ func TestUsageLimitRunLogsCodeButNeverText(t *testing.T) {
 	for _, text := range []string{r.log, string(events)} {
 		if strings.Contains(text, "hit your") {
 			t.Fatalf("the limit text leaked: %s", text)
-		}
-	}
-}
-
-func TestLogHasProgressKeysButNoContent(t *testing.T) {
-	skipOnWindows(t)
-	e := newEnv(t)
-	e.server.spec["prompt"] = "Call `start_example`.\n\nZanzibarite safety item"
-	r := e.run(0)
-	for _, part := range []string{"action=claude_start run_id=7", "key=started", "key=item_saved"} {
-		if !strings.Contains(r.log, part) {
-			t.Errorf("%q missing from the log", part)
-		}
-	}
-	for _, secret := range []string{testToken, testTicket, "Zanzibarite", "Call", "Stored.", "mcp__leadin__", "start_example", "store_item", "someone@example.com"} {
-		if strings.Contains(r.log, secret) {
-			t.Errorf("%q in the log", secret)
-		}
-	}
-	// Not towards the browser either: only keys and counters.
-	for _, event := range r.events[:len(r.events)-1] {
-		if !slices.Equal(keys(event), []string{"count", "key", "type"}) {
-			t.Fatalf("event = %v", event)
 		}
 	}
 }

@@ -32,6 +32,7 @@ func Start(cmd *exec.Cmd) (*Tree, error) {
 	tree.os = attach(cmd)
 	go func() {
 		_ = cmd.Wait()
+		tree.os.release()
 		close(tree.done)
 	}()
 	return tree, nil

@@ -43,6 +43,9 @@ func (t osTree) kill(_ *exec.Cmd, done <-chan struct{}, grace time.Duration) {
 	_ = syscall.Kill(-t.pgid, syscall.SIGKILL)
 }
 
+// release has nothing to free: the group goes away with its processes.
+func (osTree) release() {}
+
 // alive is true while at least one process is in the group.
 func (t osTree) alive() bool {
 	err := syscall.Kill(-t.pgid, 0)
