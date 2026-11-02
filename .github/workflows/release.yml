@@ -1,0 +1,162 @@
+name: Release
+
+# A tag vX.Y.Z publishes the release. Run by hand (Actions -> Release -> Run
+# workflow) it is a dry run: same build and same checks, the files can be
+# downloaded from the run, nothing is published.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build (X.Y.Z), nothing is published
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole history: the tag's commit is checked against main, and
+          # the build takes its date from the commit.
+          fetch-depth: 0
+          persist-credentials: false
+      - id: version
+        name: Version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$REF_TYPE" == tag ]]; then
+            version="${REF_NAME#v}"
+          else
+            version="$INPUT_VERSION"
+          fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$version' is not a version X.Y.Z: nothing is built"
+            exit 1
+          fi
+          if [[ "$REF_TYPE" == tag ]] && ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::the tag $REF_NAME is not on main"
+            exit 1
+          fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          # No cache: a release is built from scratch.
+          cache: false
+      - run: scripts/check.sh
+      - run: scripts/build-release.sh "$VERSION"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: dist/release/
+          if-no-files-found: error
+
+  smoke:
+    # Each binary starts on its own OS. There is no quarantine here, because
+    # the files do not come from a browser: Gatekeeper and SmartScreen are
+    # checked by hand. darwin_amd64 is not started (no free Intel Mac runner);
+    # it comes from the same build.
+    name: Start (${{ matrix.os }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux_amd64
+            platform: linux/amd64
+          - os: macos-latest
+            target: darwin_arm64
+            platform: darwin/arm64
+          - os: windows-latest
+            target: windows_amd64
+            platform: windows/amd64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      TARGET: ${{ matrix.target }}
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: release
+      - name: Bare binary
+        run: |
+          binary="release/leadin-helper_${VERSION}_${TARGET}"
+          if [[ "$TARGET" == windows_* ]]; then
+            binary+=".exe"
+          fi
+          chmod +x "$binary"
+          expected="leadin-helper $VERSION (protocol 2, $PLATFORM)"
+          actual="$("$binary" --version)"
+          echo "$actual"
+          [[ "$actual" == "$expected" ]] || { echo "::error::expected '$expected'"; exit 1; }
+      - name: Zip
+        if: matrix.target != 'windows_amd64'
+        run: |
+          zip="release/leadin-helper_${VERSION}_${TARGET}.zip"
+          [[ "$(unzip -Z1 "$zip")" == leadin-helper ]] || { echo "::error::the zip must hold only leadin-helper"; exit 1; }
+          mkdir unzipped
+          unzip -q "$zip" -d unzipped
+          [[ -x unzipped/leadin-helper ]] || { echo "::error::leadin-helper in the zip is not executable"; exit 1; }
+          actual="$(unzipped/leadin-helper --version)"
+          echo "$actual"
+          [[ "$actual" == "leadin-helper $VERSION (protocol 2, $PLATFORM)" ]]
+      - name: Ad hoc signature
+        # The Go linker signs darwin/arm64 ad hoc: without a signature Apple
+        # Silicon does not start the binary at all.
+        if: matrix.target == 'darwin_arm64'
+        run: |
+          codesign --verify --verbose "release/leadin-helper_${VERSION}_${TARGET}"
+          codesign --verify --verbose unzipped/leadin-helper
+
+  publish:
+    name: Publish
+    needs: [build, smoke]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: dist/release
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/release/leadin-helper_*
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sed "s/{version}/$VERSION/g" .github/release-notes.md >"$RUNNER_TEMP/notes.md"
+          gh release create "v$VERSION" dist/release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "leadin-helper $VERSION" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --verify-tag

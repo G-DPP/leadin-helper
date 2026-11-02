@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"testing"
 
-	"leadin-helper/internal/version"
+	"github.com/G-DPP/leadin-helper/internal/version"
 )
 
 // build compiles the command with the version set as a release build does.

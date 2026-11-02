@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"leadin-helper/internal/testutil"
+	"github.com/G-DPP/leadin-helper/internal/testutil"
 )
 
 func TestKillStopsAChildThatIgnoresSIGTERM(t *testing.T) {

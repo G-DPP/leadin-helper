@@ -14,11 +14,11 @@ import (
 	"runtime"
 	"time"
 
-	"leadin-helper/internal/claude"
-	"leadin-helper/internal/logs"
-	"leadin-helper/internal/protocol"
-	"leadin-helper/internal/run"
-	"leadin-helper/internal/version"
+	"github.com/G-DPP/leadin-helper/internal/claude"
+	"github.com/G-DPP/leadin-helper/internal/logs"
+	"github.com/G-DPP/leadin-helper/internal/protocol"
+	"github.com/G-DPP/leadin-helper/internal/run"
+	"github.com/G-DPP/leadin-helper/internal/version"
 )
 
 // actions are the actions answered with a single reply.

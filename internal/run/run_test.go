@@ -18,10 +18,10 @@ import (
 	"testing"
 	"time"
 
-	"leadin-helper/internal/logs"
-	"leadin-helper/internal/protocol"
-	"leadin-helper/internal/testutil"
-	"leadin-helper/internal/version"
+	"github.com/G-DPP/leadin-helper/internal/logs"
+	"github.com/G-DPP/leadin-helper/internal/protocol"
+	"github.com/G-DPP/leadin-helper/internal/testutil"
+	"github.com/G-DPP/leadin-helper/internal/version"
 )
 
 func TestMain(m *testing.M) {

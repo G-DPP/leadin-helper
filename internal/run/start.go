@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"leadin-helper/internal/spec"
+	"github.com/G-DPP/leadin-helper/internal/spec"
 )
 
 // ticketPattern is the server's token_urlsafe: the same check as the

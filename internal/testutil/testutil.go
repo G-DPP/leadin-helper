@@ -78,7 +78,7 @@ func BuildFakeClaude(t *testing.T) string {
 			return
 		}
 		buildPath = filepath.Join(buildDir, ClaudeName())
-		cmd := exec.Command(goTool(), "build", "-o", buildPath, "leadin-helper/internal/testutil/fakeclaude")
+		cmd := exec.Command(goTool(), "build", "-o", buildPath, "github.com/G-DPP/leadin-helper/internal/testutil/fakeclaude")
 		cmd.Stderr = os.Stderr
 		buildErr = cmd.Run()
 	})

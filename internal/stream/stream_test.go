@@ -10,7 +10,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"leadin-helper/internal/version"
+	"github.com/G-DPP/leadin-helper/internal/version"
 )
 
 // The progress map, outcomes, result id key and failure message of a made-up

@@ -13,9 +13,9 @@ import (
 	"fmt"
 	"os"
 
-	"leadin-helper/internal/host"
-	"leadin-helper/internal/logs"
-	"leadin-helper/internal/version"
+	"github.com/G-DPP/leadin-helper/internal/host"
+	"github.com/G-DPP/leadin-helper/internal/logs"
+	"github.com/G-DPP/leadin-helper/internal/version"
 )
 
 func main() {

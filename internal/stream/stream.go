@@ -53,10 +53,10 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"leadin-helper/internal/claude"
-	"leadin-helper/internal/protocol"
-	"leadin-helper/internal/spec"
-	"leadin-helper/internal/version"
+	"github.com/G-DPP/leadin-helper/internal/claude"
+	"github.com/G-DPP/leadin-helper/internal/protocol"
+	"github.com/G-DPP/leadin-helper/internal/spec"
+	"github.com/G-DPP/leadin-helper/internal/version"
 )
 
 // MCPPrefix is the prefix of the LeadIn MCP server's tools.

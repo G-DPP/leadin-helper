@@ -1,4 +1,4 @@
-module leadin-helper
+module github.com/G-DPP/leadin-helper
 
 go 1.27.2
 

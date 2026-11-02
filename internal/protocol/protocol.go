@@ -16,7 +16,7 @@ import (
 	"io"
 	"unicode/utf8"
 
-	"leadin-helper/internal/version"
+	"github.com/G-DPP/leadin-helper/internal/version"
 )
 
 const (

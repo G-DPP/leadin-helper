@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"leadin-helper/internal/version"
+	"github.com/G-DPP/leadin-helper/internal/version"
 )
 
 func frame(body []byte) []byte {

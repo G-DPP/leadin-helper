@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"leadin-helper/internal/version"
+	"github.com/G-DPP/leadin-helper/internal/version"
 )
 
 const testTicket = "tkt_" + "example0123456789abcdef"
@@ -90,7 +90,7 @@ func TestRedeemReturnsSpecOfServer(t *testing.T) {
 		t.Fatalf("requests = %v", fake.requests)
 	}
 	request := fake.requests[0]
-	if request.Path != RedeemPath || request.ContentType != "application/json" || request.Accept != "application/json" || !strings.HasPrefix(request.UserAgent, "leadin-helper/") {
+	if request.Path != RedeemPath || request.ContentType != "application/json" || request.Accept != "application/json" || !strings.HasPrefix(request.UserAgent, "github.com/G-DPP/leadin-helper/") {
 		t.Fatalf("request = %+v", request)
 	}
 	if len(request.Body) != 4 || request.Body["run_id"] != 7.0 || request.Body["ticket"] != testTicket {

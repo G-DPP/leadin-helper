@@ -29,12 +29,12 @@ import (
 	"sync"
 	"time"
 
-	"leadin-helper/internal/claude"
-	"leadin-helper/internal/logs"
-	"leadin-helper/internal/proc"
-	"leadin-helper/internal/protocol"
-	"leadin-helper/internal/spec"
-	"leadin-helper/internal/stream"
+	"github.com/G-DPP/leadin-helper/internal/claude"
+	"github.com/G-DPP/leadin-helper/internal/logs"
+	"github.com/G-DPP/leadin-helper/internal/proc"
+	"github.com/G-DPP/leadin-helper/internal/protocol"
+	"github.com/G-DPP/leadin-helper/internal/spec"
+	"github.com/G-DPP/leadin-helper/internal/stream"
 )
 
 // MaxRunDuration caps a run: beyond it claude is stopped and the run fails

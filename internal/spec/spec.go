@@ -14,7 +14,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"leadin-helper/internal/claude"
+	"github.com/G-DPP/leadin-helper/internal/claude"
 )
 
 // Models are the model aliases that can be passed to `claude --model`.

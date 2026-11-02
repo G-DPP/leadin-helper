@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"leadin-helper/internal/testutil"
+	"github.com/G-DPP/leadin-helper/internal/testutil"
 )
 
 func TestMain(m *testing.M) {

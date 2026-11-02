@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"leadin-helper/internal/testutil"
+	"github.com/G-DPP/leadin-helper/internal/testutil"
 )
 
 // Runs only on Windows (CI of the release): Kill stops cmd and the ping it

@@ -31,7 +31,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"leadin-helper/internal/version"
+	"github.com/G-DPP/leadin-helper/internal/version"
 )
 
 const (
@@ -140,7 +140,7 @@ func Redeem(ctx context.Context, serverURL string, runID int64, ticket string) (
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
-	request.Header.Set("User-Agent", "leadin-helper/"+version.Version)
+	request.Header.Set("User-Agent", "github.com/G-DPP/leadin-helper/"+version.Version)
 	response, err := client.Do(request)
 	if err != nil {
 		// The error text holds the URL: only the code goes out.
