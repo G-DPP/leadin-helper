@@ -275,6 +275,18 @@ func TestTooManySubagentsAreRejected(t *testing.T) {
 	assertRejected(t, "agents not an object", makeSpec(t, server, true, set("agents", []any{"example-worker"})))
 }
 
+// The subagents go on the command line: their JSON must fit the Windows limit.
+func TestSubagentsTooLongForTheCommandLineAreRejected(t *testing.T) {
+	assertRejected(t, "8 long subagents", makeSpec(t, server, true, func(data map[string]any) {
+		agents := map[string]any{}
+		for i := 0; i < 8; i++ {
+			agent := map[string]any{"description": "d", "prompt": strings.Repeat("x", 1_000), "tools": []any{"WebSearch"}}
+			agents["agent_"+strconv.Itoa(i)] = agent
+		}
+		data["agents"] = agents
+	}))
+}
+
 func TestAgentToolWithoutAgentsIsRejected(t *testing.T) {
 	assertRejected(t, "Agent without agents", makeSpec(t, server, false, set("tools", []any{"WebSearch", "Agent"})))
 	assertRejected(t, "Agent with empty agents", makeSpec(t, server, true, set("agents", map[string]any{})))

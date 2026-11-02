@@ -3,8 +3,8 @@
 //
 // One run: redeem the ticket on the server, which gives the run spec
 // (package spec); check claude (present, recent enough and logged in); a
-// temporary folder with mcp.json (and agents.json if the spec has
-// subagents); `claude -p` with the spec's prompt on stdin; read the stream
+// temporary folder with work/ (claude's working directory) and config/ (with
+// mcp.json); `claude -p` (with --agents if the spec has subagents) with the spec's prompt on stdin; read the stream
 // (package stream) and close. The helper lives as long as the run: EOF on
 // its stdin means the extension closed the port (cancel, or the browser
 // closed), and then claude is stopped with all its children.
@@ -24,6 +24,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -112,10 +114,15 @@ func (v versions) fields(withSubscription bool) map[string]any {
 }
 
 func execute(req StartRequest, runSpec spec.RunSpec, path string, env []string, v versions, stdin io.Reader, out io.Writer, logger *logs.Logger) map[string]any {
-	workdir, err := os.MkdirTemp("", "leadin-run-")
+	// The run's folder: work/ is claude's working directory, config/ keeps
+	// mcp.json out of Read's reach (--restricted lets Read into the working
+	// directory, and Claude must not read the token).
+	runDir, err := os.MkdirTemp("", "leadin-run-")
 	if err != nil {
 		return fail(out, "unknown", v.fields(true))
 	}
+	workdir := filepath.Join(runDir, "work")
+	privateDir := filepath.Join(runDir, "config")
 	configDir := claude.ConfigDir()
 	var tree *proc.Tree
 	// Cleanup in every case, panics included: stop claude if it is still
@@ -126,10 +133,13 @@ func execute(req StartRequest, runSpec spec.RunSpec, path string, env []string, 
 			tree.Kill()
 		}
 		claude.RemoveRunDirs(workdir, configDir)
-		_ = os.RemoveAll(workdir)
+		_ = os.RemoveAll(runDir)
 	}()
+	if os.Mkdir(workdir, 0o700) != nil || os.Mkdir(privateDir, 0o700) != nil {
+		return fail(out, "unknown", v.fields(true))
+	}
 
-	cmd, stdout, err := command(runSpec, path, env, workdir)
+	cmd, stdout, err := command(runSpec, path, env, workdir, privateDir)
 	if err != nil {
 		return fail(out, "unknown", v.fields(true))
 	}
@@ -203,25 +213,26 @@ func execute(req StartRequest, runSpec spec.RunSpec, path string, env []string, 
 	return fields
 }
 
-// command prepares claude in workdir: mcp.json, agents.json if the spec has
-// subagents, the command line, the filtered environment, stderr discarded
-// (it contains Claude's text) and stdout on a pipe whose read end is
-// returned.
-func command(runSpec spec.RunSpec, path string, env []string, workdir string) (*exec.Cmd, *os.File, error) {
-	mcpConfig, err := claude.WriteMCPConfig(workdir, runSpec.MCPURL, runSpec.MCPToken)
+// command prepares claude in workdir: mcp.json in privateDir, the command
+// line (with the subagents if the spec has them, and Read only in the run's
+// project folders), the filtered environment with the MCP answer limit,
+// stderr discarded (it contains Claude's text) and stdout on a pipe whose
+// read end is returned.
+func command(runSpec spec.RunSpec, path string, env []string, workdir, privateDir string) (*exec.Cmd, *os.File, error) {
+	mcpConfig, err := claude.WriteMCPConfig(privateDir, runSpec.MCPURL, runSpec.MCPToken)
 	if err != nil {
 		return nil, nil, err
 	}
-	agentsConfig := ""
+	agents := ""
 	if len(runSpec.Agents) > 0 {
-		if agentsConfig, err = claude.WriteAgentsConfig(workdir, runSpec.Agents); err != nil {
+		if agents, err = claude.AgentsJSON(agentsWithRead(runSpec.Agents)); err != nil {
 			return nil, nil, err
 		}
 	}
-	args := claude.BuildCommand(path, runSpec.Model, runSpec.Tools, mcpConfig, agentsConfig)
+	args := claude.BuildCommand(path, runSpec.Model, runSpec.Tools, mcpConfig, agents, claude.ReadRules(workdir))
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Dir = workdir
-	cmd.Env = env
+	cmd.Env = claude.RunEnv(env)
 	// An *os.File and not cmd.StdoutPipe: the process can then be waited for
 	// while the stream is still being read.
 	stdoutRead, stdoutWrite, err := os.Pipe()
@@ -231,6 +242,20 @@ func command(runSpec spec.RunSpec, path string, env []string, workdir string) (*
 	cmd.Stdout = stdoutWrite
 	cmd.Stderr = nil
 	return cmd, stdoutRead, nil
+}
+
+// agentsWithRead is a copy of agents with Read among each subagent's tools: a
+// subagent calls the MCP tools too, and their answer can end up in a file.
+// The Read rules hold for the whole session, subagents included.
+func agentsWithRead(agents map[string]spec.Agent) map[string]spec.Agent {
+	copied := make(map[string]spec.Agent, len(agents))
+	for name, agent := range agents {
+		if !slices.Contains(agent.Tools, claude.ReadTool) {
+			agent.Tools = append(append([]string{}, agent.Tools...), claude.ReadTool)
+		}
+		copied[name] = agent
+	}
+	return copied
 }
 
 // cancelled is closed when stdin ends: the extension closed the port. After

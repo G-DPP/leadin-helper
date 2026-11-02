@@ -35,7 +35,10 @@ type Call struct {
 	Files     []string `json:"files"`
 	MCPMode   string   `json:"mcp_mode"`
 	MCPConfig string   `json:"mcp_config"`
+	MCPDir    string   `json:"mcp_dir"`
 	Agents    string   `json:"agents"`
+	// MaxMCPOutputTokens is the one value of the environment recorded.
+	MaxMCPOutputTokens string `json:"max_mcp_output_tokens"`
 }
 
 var (

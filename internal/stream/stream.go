@@ -10,12 +10,18 @@
 //     the spec's outcomes, and the cost and usage of the result event. The
 //     result id is read under the spec's result_id_key and goes out as
 //     result_id: the helper does not know what it is. If the last line is not
-//     valid, the outcome is failed with the spec's failure_message: Claude's
-//     text never goes out;
+//     valid, the outcome is failed with the spec's failure_message and the
+//     code invalid_final_line;
 //   - run_failed if the MCP server did not accept the token, if the result
 //     is missing or if it is an error (is_error). In that last case
 //     ClassifyError picks the code (usage_limit, api_error, unknown), and the
-//     event carries cost, usage, duration and turns, never Claude's text.
+//     event carries cost, usage, duration and turns.
+//
+// final_message is what the server keeps on the run, to tell how it ended:
+// the message of a valid last line, otherwise the last spec.MaxMessage
+// characters of Claude's final text. It is the only text of Claude that
+// leaves the helper: the same the server keeps for its own runs, never the
+// prompt or the tools.
 //
 // The local log gets the same neutral keys, never the tool names: with the
 // names the log would reconstruct the steps of a run.
@@ -193,18 +199,47 @@ func (r *Reader) FinalEvent(claudeVersion, subscriptionType *string) map[string]
 	}
 	// is_error wins, even over a valid last line.
 	if r.Result["is_error"] == true || r.Result["subtype"] != "success" {
-		return protocol.RunFailed(ClassifyError(r.Result), merge(versions, r.metrics()))
+		fields := merge(versions, r.metrics())
+		fields["final_message"] = r.textTail()
+		return protocol.RunFailed(ClassifyError(r.Result), fields)
 	}
 
 	final, ok := ParseFinalLine(r.Result["result"], r.outcomes, r.resultIDKey)
-	if !ok {
+	if ok {
+		final["error_code"] = ""
+		final["final_message"] = final["message"]
+	} else {
 		// The spec always has failed (package spec).
-		final = map[string]any{"outcome": spec.FailedOutcome, "message": r.failureMessage, "result_id": nil}
+		final = map[string]any{
+			"outcome":       spec.FailedOutcome,
+			"message":       r.failureMessage,
+			"result_id":     nil,
+			"error_code":    InvalidFinalLine,
+			"final_message": r.textTail(),
+		}
 	}
 	event := merge(final, r.metrics())
 	event["type"] = "run_finished"
 	event["helper_version"] = version.Version
 	return merge(event, versions)
+}
+
+// InvalidFinalLine is the code of a run that ended without a valid last line:
+// the same as the server's.
+const InvalidFinalLine = "invalid_final_line"
+
+// textTail is the last spec.MaxMessage characters of Claude's final text,
+// trimmed, or "".
+func (r *Reader) textTail() string {
+	text, ok := r.Result["result"].(string)
+	if !ok {
+		return ""
+	}
+	runes := []rune(strings.TrimSpace(text))
+	if len(runes) > spec.MaxMessage {
+		runes = runes[len(runes)-spec.MaxMessage:]
+	}
+	return string(runes)
 }
 
 // metrics are duration and turns summed over every result, cost and usage

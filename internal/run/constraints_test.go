@@ -47,7 +47,7 @@ func agentTools(tools ...any) func(map[string]any) {
 // Claude Code made for it are gone.
 func (e *env) assertRunGone() {
 	e.t.Helper()
-	if _, err := os.Stat(e.runCall().Cwd); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Dir(e.runCall().Cwd)); !os.IsNotExist(err) {
 		e.t.Fatalf("the temporary folder is still there: %v", err)
 	}
 	e.assertNoLeftovers()
@@ -58,10 +58,11 @@ func TestRunsInEmptyTemporaryDirectory(t *testing.T) {
 	e := newEnv(t)
 	e.run(0)
 	call := e.runCall()
-	if !strings.HasPrefix(filepath.Base(call.Cwd), "leadin-run-") || filepath.Dir(call.Cwd) != e.tmp {
+	runDir := filepath.Dir(call.Cwd)
+	if filepath.Base(call.Cwd) != "work" || !strings.HasPrefix(filepath.Base(runDir), "leadin-run-") || filepath.Dir(runDir) != e.tmp {
 		t.Fatalf("cwd = %s", call.Cwd)
 	}
-	if !slices.Equal(call.Files, []string{"mcp.json"}) {
+	if len(call.Files) != 0 {
 		t.Fatalf("files = %v", call.Files)
 	}
 
@@ -69,8 +70,51 @@ func TestRunsInEmptyTemporaryDirectory(t *testing.T) {
 	e.server.spec = makeSpec(e.server.URL, true)
 	e.config.Fixture = fixture(t, "run_subagents.jsonl")
 	e.run(0)
-	if files := e.runCall().Files; !slices.Equal(files, []string{"agents.json", "mcp.json"}) {
+	if files := e.runCall().Files; len(files) != 0 {
 		t.Fatalf("files with subagents = %v", files)
+	}
+}
+
+// mcp.json, with the token, stays out of the working directory: --restricted
+// lets Read into it. It sits in config/, next to work/, private.
+func TestMCPConfigIsOutsideTheWorkingDirectory(t *testing.T) {
+	skipOnWindows(t)
+	e := newEnv(t)
+	e.run(0)
+	call := e.runCall()
+	if call.MCPDir != filepath.Join(filepath.Dir(call.Cwd), "config") || call.MCPMode != "600" {
+		t.Fatalf("mcp.json in %s (mode %s), cwd %s", call.MCPDir, call.MCPMode, call.Cwd)
+	}
+	if !strings.Contains(call.MCPConfig, testToken) {
+		t.Fatal("the token is not in mcp.json")
+	}
+}
+
+func TestMCPOutputLimitIsRaised(t *testing.T) {
+	skipOnWindows(t)
+	e := newEnv(t)
+	e.run(0)
+	if got := e.runCall().MaxMCPOutputTokens; got != "200000" {
+		t.Fatalf("MAX_MCP_OUTPUT_TOKENS = %q", got)
+	}
+}
+
+// Read is allowed only by a rule on the run's project folder, never alone:
+// on the person's PC it would read their whole home.
+func TestReadIsAllowedOnlyInTheRunProjectFolder(t *testing.T) {
+	skipOnWindows(t)
+	e := newEnv(t)
+	e.run(0)
+	call := e.runCall()
+	allowed := strings.Split(argAfter(call.Args, "--allowedTools"), " ")
+	reads := []string{}
+	for _, rule := range allowed {
+		if strings.HasPrefix(rule, "Read") {
+			reads = append(reads, rule)
+		}
+	}
+	if want := "Read(~/.claude/projects/" + dirName(call.Cwd) + "/**)"; !slices.Equal(reads, []string{want}) {
+		t.Fatalf("Read rules = %q, want %q", reads, want)
 	}
 }
 
@@ -156,10 +200,11 @@ func TestOnlyAllowedBuiltinToolsReachClaude(t *testing.T) {
 	call := e.runCall()
 	// Only the spec's tools, among WebSearch, WebFetch and Agent.
 	tools := strings.Split(argAfter(call.Args, "--tools"), ",")
-	if !slices.Equal(tools, []string{"WebFetch", "Agent"}) {
+	// Read is the helper's own, for the answers saved to a file.
+	if !slices.Equal(tools, []string{"WebFetch", "Agent", "Read"}) {
 		t.Fatalf("--tools = %v", tools)
 	}
-	if allowed := argAfter(call.Args, "--allowedTools"); allowed != "mcp__leadin WebFetch Agent" {
+	if allowed := argAfter(call.Args, "--allowedTools"); allowed != "mcp__leadin WebFetch Agent "+readRule(call.Cwd) {
 		t.Fatalf("--allowedTools = %q", allowed)
 	}
 }

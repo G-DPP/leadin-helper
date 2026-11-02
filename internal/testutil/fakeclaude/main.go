@@ -7,7 +7,8 @@
 // fixture line by line. It can also pause before each line, start a child
 // that keeps stdout open, and create the project folder Claude Code would
 // create in ~/.claude/projects/. The record of a run also holds stdin, the
-// working directory, the files in it and mcp.json with its permissions.
+// working directory, the files in it, mcp.json (the one of --mcp-config) with
+// its permissions and folder, and the value of MAX_MCP_OUTPUT_TOKENS.
 //
 // The configuration comes from a file and not from environment variables:
 // the helper passes claude only the allowed variables, and a FAKE_CLAUDE_*
@@ -59,7 +60,10 @@ type Call struct {
 	Files     []string `json:"files,omitempty"`
 	MCPMode   string   `json:"mcp_mode,omitempty"`
 	MCPConfig string   `json:"mcp_config,omitempty"`
+	MCPDir    string   `json:"mcp_dir,omitempty"`
 	Agents    string   `json:"agents,omitempty"`
+	// MaxMCPOutputTokens is the one value of the environment recorded.
+	MaxMCPOutputTokens string `json:"max_mcp_output_tokens,omitempty"`
 }
 
 func main() {
@@ -100,14 +104,22 @@ func playRun(config Config, args []string) int {
 		for _, entry := range entries {
 			call.Files = append(call.Files, entry.Name())
 		}
-		if info, err := os.Stat(filepath.Join(cwd, "mcp.json")); err == nil {
+		mcp := filepath.Join(cwd, "mcp.json")
+		for i, arg := range args {
+			if arg == "--agents" && i+1 < len(args) {
+				call.Agents = args[i+1]
+			}
+			if arg == "--mcp-config" && i+1 < len(args) {
+				mcp = args[i+1]
+			}
+		}
+		if info, err := os.Stat(mcp); err == nil {
 			call.MCPMode = strconv.FormatUint(uint64(info.Mode().Perm()), 8)
-			data, _ := os.ReadFile(filepath.Join(cwd, "mcp.json"))
+			data, _ := os.ReadFile(mcp)
 			call.MCPConfig = string(data)
+			call.MCPDir = filepath.Dir(mcp)
 		}
-		if data, err := os.ReadFile(filepath.Join(cwd, "agents.json")); err == nil {
-			call.Agents = string(data)
-		}
+		call.MaxMCPOutputTokens = os.Getenv("MAX_MCP_OUTPUT_TOKENS")
 		record(config.Record, call)
 	}
 

@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"leadin-helper/internal/version"
 )
@@ -273,6 +274,9 @@ func TestInvalidFinalLineFallsBackToFailureMessage(t *testing.T) {
 		if event["type"] != "run_finished" || event["outcome"] != "failed" || event["message"] != failureMessage || event["result_id"] != nil {
 			t.Errorf("%q: event = %v", text, event)
 		}
+		if event["error_code"] != InvalidFinalLine || event["final_message"] != strings.TrimSpace(text) {
+			t.Errorf("%q: error_code %q, final_message %q", text, event["error_code"], event["final_message"])
+		}
 	}
 	long, _ := json.Marshal(map[string]any{"outcome": "done", "message": strings.Repeat("x", 501), "item_id": 1})
 	if _, ok := ParseFinalLine(string(long), outcomes, resultIDKey); ok {
@@ -373,7 +377,7 @@ func TestUsageLimitResultBecomesRunFailedWithMetrics(t *testing.T) {
 	if event["claude_version"] != "2.1.300" || event["subscription_type"] != "max" {
 		t.Errorf("versions = %v, %v", event["claude_version"], event["subscription_type"])
 	}
-	assertKeys(t, event, "type", "code", "duration_ms", "num_turns", "cost_usd", "usage", "helper_version", "claude_version", "subscription_type")
+	assertKeys(t, event, "type", "code", "duration_ms", "num_turns", "cost_usd", "usage", "final_message", "helper_version", "claude_version", "subscription_type")
 }
 
 func TestUsageLimitTextsAreRecognized(t *testing.T) {
@@ -437,21 +441,35 @@ func TestUnknownErrorResultBecomesRunFailedUnknown(t *testing.T) {
 	}
 }
 
-func TestErrorTextNeverLeavesTheHelper(t *testing.T) {
+func TestErrorTextLeavesTheHelperOnlyAsFinalMessage(t *testing.T) {
 	for _, name := range []string{"run_usage_limit.jsonl", "run_api_error.jsonl"} {
 		reader := newReader()
 		events := feedAll(reader, readFixture(t, name))
 		text := reader.Result["result"].(string)
-		events = append(events, reader.FinalEvent(ptr("2.1.300"), ptr("pro")))
-		serialized := serialize(t, events)
+		final := reader.FinalEvent(ptr("2.1.300"), ptr("pro"))
+		if final["final_message"] != strings.TrimSpace(text) {
+			t.Errorf("%s: final_message = %q", name, final["final_message"])
+		}
+		others := map[string]any{}
+		for key, value := range final {
+			if key != "final_message" {
+				others[key] = value
+			}
+		}
+		serialized := serialize(t, append(events, others))
 		if strings.Contains(serialized, text[:15]) {
 			t.Errorf("%s: error text leaked: %s", name, serialized)
 		}
 	}
+}
+
+func TestFinalMessageKeepsOnlyTheEndOfTheText(t *testing.T) {
 	reader := newReader()
-	reader.Feed(resultLine(t, "Very secret text of Claude", map[string]any{"is_error": true}))
-	if strings.Contains(serialize(t, reader.FinalEvent(nil, nil)), "secret") {
-		t.Fatal("error text leaked")
+	reader.Feed(resultLine(t, strings.Repeat("è", 600)+" end  ", map[string]any{"is_error": true}))
+	final := reader.FinalEvent(nil, nil)["final_message"].(string)
+	// Characters, not bytes.
+	if utf8.RuneCountInString(final) != 500 || !strings.HasSuffix(final, "è end") {
+		t.Fatalf("final_message = %q (%d characters)", final, utf8.RuneCountInString(final))
 	}
 }
 
@@ -477,7 +495,10 @@ func TestResultCostAndUsageAreForwarded(t *testing.T) {
 	if event["helper_version"] != version.Version || event["subscription_type"] != "pro" {
 		t.Fatalf("event = %v", event)
 	}
-	assertKeys(t, event, "type", "outcome", "message", "result_id", "duration_ms", "num_turns", "cost_usd", "usage", "helper_version", "claude_version", "subscription_type")
+	assertKeys(t, event, "type", "outcome", "message", "result_id", "error_code", "final_message", "duration_ms", "num_turns", "cost_usd", "usage", "helper_version", "claude_version", "subscription_type")
+	if event["error_code"] != "" || event["final_message"] != "Stored." {
+		t.Fatalf("error_code %q, final_message %q", event["error_code"], event["final_message"])
+	}
 	// Numbers keep their JSON form.
 	if !strings.Contains(serialize(t, event), `"cost_usd":0.0842`) {
 		t.Fatalf("serialized = %s", serialize(t, event))

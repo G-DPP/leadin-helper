@@ -240,6 +240,40 @@ func (e *env) runCall() testutil.Call {
 	return testutil.Call{}
 }
 
+// dirName is the folder name Claude Code derives from a path (as in package
+// claude): every character that is not an ASCII letter or digit becomes "-".
+func dirName(path string) string {
+	var b strings.Builder
+	for _, r := range path {
+		if r < 128 && (r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
+}
+
+// readRule is the one Read rule of a run in cwd (no symlinks in the tests'
+// temporary folders on Linux).
+func readRule(cwd string) string {
+	return "Read(~/.claude/projects/" + dirName(cwd) + "/**)"
+}
+
+// withRead is a copy of agents with Read added to each subagent's tools.
+func withRead(agents map[string]any) map[string]any {
+	copied := map[string]any{}
+	for name, value := range agents {
+		agent := map[string]any{}
+		for key, field := range value.(map[string]any) {
+			agent[key] = field
+		}
+		agent["tools"] = append(append([]any{}, agent["tools"].([]any)...), "Read")
+		copied[name] = agent
+	}
+	return copied
+}
+
 func argAfter(args []string, flag string) string {
 	i := slices.Index(args, flag)
 	if i < 0 || i+1 >= len(args) {
@@ -446,12 +480,12 @@ func TestCommandComesFromSpec(t *testing.T) {
 	// The same command as the earlier helper, argument by argument.
 	mcpConfig := argAfter(call.Args, "--mcp-config")
 	want := []string{
-		"-p", "--restricted", "--model", "opus", "--tools", "WebSearch,WebFetch",
-		"--allowedTools", "mcp__leadin WebSearch WebFetch", "--mcp-config", mcpConfig,
+		"-p", "--restricted", "--model", "opus", "--tools", "WebSearch,WebFetch,Read",
+		"--allowedTools", "mcp__leadin WebSearch WebFetch " + readRule(call.Cwd), "--mcp-config", mcpConfig,
 		"--strict-mcp-config", "--no-session-persistence", "--output-format", "stream-json",
 		"--verbose", "--input-format", "stream-json",
 	}
-	if !slices.Equal(call.Args, want) || mcpConfig != filepath.Join(call.Cwd, "mcp.json") {
+	if !slices.Equal(call.Args, want) || mcpConfig != filepath.Join(filepath.Dir(call.Cwd), "config", "mcp.json") {
 		t.Fatalf("args = %q", call.Args)
 	}
 	// The spec's prompt arrives on stdin as one user message.
@@ -633,10 +667,10 @@ func TestSpecWithoutAgentsStartsWithoutSubagents(t *testing.T) {
 	e := newEnv(t)
 	e.run(0)
 	call := e.runCall()
-	if argAfter(call.Args, "--tools") != "WebSearch,WebFetch" || argAfter(call.Args, "--allowedTools") != "mcp__leadin WebSearch WebFetch" {
+	if argAfter(call.Args, "--tools") != "WebSearch,WebFetch,Read" || argAfter(call.Args, "--allowedTools") != "mcp__leadin WebSearch WebFetch "+readRule(call.Cwd) {
 		t.Fatalf("args = %v", call.Args)
 	}
-	if slices.Contains(call.Args, "--agents") || !slices.Equal(call.Files, []string{"mcp.json"}) {
+	if slices.Contains(call.Args, "--agents") || len(call.Files) != 0 {
 		t.Fatalf("args %v, files %v", call.Args, call.Files)
 	}
 }
@@ -648,24 +682,25 @@ func TestSpecWithAgentsStartsWithSubagents(t *testing.T) {
 	e.config.Fixture = fixture(t, "run_subagents.jsonl")
 	r := e.run(0)
 	call := e.runCall()
-	if argAfter(call.Args, "--tools") != "WebSearch,WebFetch,Agent" || argAfter(call.Args, "--allowedTools") != "mcp__leadin WebSearch WebFetch Agent" {
+	if argAfter(call.Args, "--tools") != "WebSearch,WebFetch,Agent,Read" || argAfter(call.Args, "--allowedTools") != "mcp__leadin WebSearch WebFetch Agent "+readRule(call.Cwd) {
 		t.Fatalf("args = %v", call.Args)
 	}
-	if argAfter(call.Args, "--agents") != filepath.Join(call.Cwd, "agents.json") || !slices.Equal(call.Files, []string{"agents.json", "mcp.json"}) {
+	if len(call.Files) != 0 {
 		t.Fatalf("args %v, files %v", call.Args, call.Files)
 	}
 	if strings.Contains(strings.Join(call.Args, " "), testToken) {
 		t.Fatal("token in the arguments")
 	}
-	// agents.json holds the subagents of the spec.
+	// --agents holds the subagents of the spec, as JSON, with Read added:
+	// they call the MCP tools too.
 	var agents map[string]any
 	if err := json.Unmarshal([]byte(call.Agents), &agents); err != nil {
 		t.Fatal(err)
 	}
-	wantAgents, _ := json.Marshal(testAgents)
+	wantAgents, _ := json.Marshal(withRead(testAgents))
 	gotAgents, _ := json.Marshal(agents)
 	if string(gotAgents) != string(wantAgents) {
-		t.Fatalf("agents.json = %s, want %s", gotAgents, wantAgents)
+		t.Fatalf("--agents = %s, want %s", gotAgents, wantAgents)
 	}
 
 	last := map[string]string{}
@@ -706,7 +741,12 @@ func TestUsageLimitRunLogsCodeButNeverText(t *testing.T) {
 	if !strings.Contains(r.log, "key=item_saved") {
 		t.Fatalf("log = %q", r.log)
 	}
-	events, _ := json.Marshal(r.events)
+	// Claude's final text reaches the server as final_message, never the log
+	// or the other events.
+	if final, _ := r.last()["final_message"].(string); !strings.Contains(final, "hit your") {
+		t.Fatalf("final_message = %q", r.last()["final_message"])
+	}
+	events, _ := json.Marshal(r.events[:len(r.events)-1])
 	for _, text := range []string{r.log, string(events)} {
 		if strings.Contains(text, "hit your") {
 			t.Fatalf("the limit text leaked: %s", text)

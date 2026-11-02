@@ -9,8 +9,6 @@ import (
 const (
 	// MCPConfigName is the MCP configuration of a run, with the token.
 	MCPConfigName = "mcp.json"
-	// AgentsConfigName holds the subagents of a run.
-	AgentsConfigName = "agents.json"
 )
 
 // WriteMCPConfig writes mcp.json into dir with the server URL and the token,
@@ -27,12 +25,6 @@ func WriteMCPConfig(dir, url, token string) (string, error) {
 		},
 	}
 	return writePrivateJSON(filepath.Join(dir, MCPConfigName), config)
-}
-
-// WriteAgentsConfig writes agents.json into dir with the subagents of the
-// spec, readable by the user only, and returns its path.
-func WriteAgentsConfig(dir string, agents any) (string, error) {
-	return writePrivateJSON(filepath.Join(dir, AgentsConfigName), agents)
 }
 
 func writePrivateJSON(path string, value any) (string, error) {

@@ -116,7 +116,7 @@ what the helper can do, never if it widens it:
 | `model` | `sonnet`, `opus` or `haiku` |
 | `prompt` | not blank, at most 250 000 characters |
 | `tools` | a subset of `WebSearch`, `WebFetch`, `Agent`, without duplicates |
-| `agents` | object, at most 10 subagents; present if and only if `tools` has `Agent`. Name in `[A-Za-z0-9_-]{1,64}`; fields `description` and `prompt` (not blank, at most 10 000 characters), `tools` (not empty, within `WebSearch`, `WebFetch` and `mcp__leadin__*`; never `Agent`) and optionally `model` |
+| `agents` | object, at most 10 subagents; present if and only if `tools` has `Agent`. Name in `[A-Za-z0-9_-]{1,64}`; fields `description` and `prompt` (not blank, at most 10 000 characters), `tools` (not empty, within `WebSearch`, `WebFetch` and `mcp__leadin__*`; never `Agent`) and optionally `model`. Their JSON goes on Claude Code's command line, so it holds at most 8 000 characters |
 | `progress_map` | object, at most 200 entries: tool name → neutral progress key, both in `[A-Za-z0-9_]{1,64}` |
 | `outcomes` | the outcomes allowed in Claude's last line: 1–20 words in `[A-Za-z0-9_]{1,64}`, without duplicates, including `failed` |
 | `result_id_key` | the key of Claude's last line holding the result id, a word in `[A-Za-z0-9_]{1,64}` |
@@ -144,6 +144,8 @@ or Claude's text.
   "outcome": "done",
   "message": "…",
   "result_id": 42,
+  "error_code": "",
+  "final_message": "…",
   "duration_ms": 61000,
   "num_turns": 12,
   "cost_usd": 0.31,
@@ -157,8 +159,13 @@ or Claude's text.
 `outcome` and `message` come from Claude's last JSON line, with `outcome`
 among the spec's `outcomes`; `result_id` is the integer (or `null`) under
 the spec's `result_id_key` in the same line. The helper does not know what it
-identifies. If that line is not valid, `outcome` is `failed` and `message`
-is the spec's `failure_message`.
+identifies. If that line is not valid, `outcome` is `failed`, `message`
+is the spec's `failure_message` and `error_code` is `invalid_final_line`
+(otherwise `error_code` is empty).
+
+`final_message` is what the server keeps on the run, to tell how it ended:
+the `message` of a valid last line, otherwise the last 500 characters of
+Claude's final text. It is the only text of Claude that leaves the helper.
 
 `run_failed`, when the run could not start or did not end normally:
 
@@ -186,8 +193,8 @@ is the spec's `failure_message`.
 The versions are present when known (not in the five redeem errors, which
 happen before looking for `claude`). When `claude` ended with an error
 `result`, the event also carries `duration_ms`, `num_turns`, `cost_usd` and
-`usage`: an interrupted run has still consumed usage. Claude's error text
-never leaves the helper.
+`usage`: an interrupted run has still consumed usage, and `final_message`
+with the last 500 characters of Claude's error text.
 
 ### Cancelling
 
@@ -209,7 +216,7 @@ A run with two tool calls, as the extension receives it:
 ```json
 {"type": "run_progress", "key": "started", "count": 1}
 {"type": "run_progress", "key": "item_saved", "count": 1}
-{"type": "run_finished", "outcome": "done", "message": "Stored.", "result_id": 42, "duration_ms": 18250, "num_turns": 5, "cost_usd": 0.08, "usage": {"usage": {}, "modelUsage": {}}, "claude_version": "2.1.300", "subscription_type": "pro", "helper_version": "1.0.0"}
+{"type": "run_finished", "outcome": "done", "message": "Stored.", "result_id": 42, "error_code": "", "final_message": "Stored.", "duration_ms": 18250, "num_turns": 5, "cost_usd": 0.08, "usage": {"usage": {}, "modelUsage": {}}, "claude_version": "2.1.300", "subscription_type": "pro", "helper_version": "1.0.0"}
 ```
 
 With subagents, `usage` also carries Claude Code's `subagent_stats`
@@ -232,3 +239,6 @@ With subagents, `usage` also carries Claude Code's `subagent_stats`
 - **2**: `run_finished` carries `result_id`, read from the spec's
   `result_id_key`; the allowed outcomes and the failure message come from the
   spec (`outcomes`, `failure_message`).
+- **2, added fields**: `run_finished` carries `error_code` and
+  `final_message`, `run_failed` after an error `result` carries
+  `final_message`. Added fields only: the protocol version does not change.

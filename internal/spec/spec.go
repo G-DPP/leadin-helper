@@ -34,8 +34,13 @@ var AgentTools = []string{"WebSearch", "WebFetch"}
 var AgentFields = []string{"description", "prompt", "tools", "model"}
 
 const (
-	MaxAgents          = 10
-	MaxAgentText       = 10_000
+	MaxAgents    = 10
+	MaxAgentText = 10_000
+	// MaxAgentsJSON bounds the subagents' JSON, which goes on the command
+	// line (claude.BuildCommand): on Windows the whole line holds at most
+	// 32,767 characters, counting the backslashes Windows adds before the
+	// quotes. The contacts run uses fewer than 400.
+	MaxAgentsJSON      = 8_000
 	MaxPrompt          = 250_000
 	MaxProgressEntries = 200
 	MaxOutcomes        = 20
@@ -223,6 +228,10 @@ func validAgents(data map[string]any) (map[string]Agent, bool) {
 			return nil, false
 		}
 		agents[name] = agent
+	}
+	encoded, err := claude.AgentsJSON(agents)
+	if err != nil || utf8.RuneCountInString(encoded) > MaxAgentsJSON {
+		return nil, false
 	}
 	return agents, true
 }

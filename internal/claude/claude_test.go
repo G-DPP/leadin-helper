@@ -203,7 +203,7 @@ func TestApiKeyNeverReachesAuthStatus(t *testing.T) {
 }
 
 func TestBuildCommandMatchesTheEarlierHelper(t *testing.T) {
-	got := BuildCommand("/x/claude", "opus", []string{"WebSearch", "WebFetch"}, "/run/mcp.json", "")
+	got := BuildCommand("/x/claude", "opus", []string{"WebSearch", "WebFetch"}, "/run/mcp.json", "", nil)
 	want := []string{
 		"/x/claude", "-p", "--restricted", "--model", "opus",
 		"--tools", "WebSearch,WebFetch",
@@ -217,12 +217,13 @@ func TestBuildCommandMatchesTheEarlierHelper(t *testing.T) {
 }
 
 func TestBuildCommandWithSubagents(t *testing.T) {
-	got := BuildCommand("/x/claude", "sonnet", []string{"WebSearch", "WebFetch", "Agent"}, "/run/mcp.json", "/run/agents.json")
+	agents := `{"example-worker":{"description":"d","prompt":"p","tools":["WebSearch"]}}`
+	got := BuildCommand("/x/claude", "sonnet", []string{"WebSearch", "WebFetch", "Agent"}, "/run/mcp.json", agents, nil)
 	want := []string{
 		"/x/claude", "-p", "--restricted", "--model", "sonnet",
 		"--tools", "WebSearch,WebFetch,Agent",
 		"--allowedTools", "mcp__leadin WebSearch WebFetch Agent",
-		"--agents", "/run/agents.json",
+		"--agents", agents,
 		"--mcp-config", "/run/mcp.json", "--strict-mcp-config", "--no-session-persistence",
 		"--output-format", "stream-json", "--verbose", "--input-format", "stream-json",
 	}
@@ -232,9 +233,50 @@ func TestBuildCommandWithSubagents(t *testing.T) {
 }
 
 func TestBuildCommandWithoutTools(t *testing.T) {
-	got := BuildCommand("claude", "haiku", nil, "mcp.json", "")
+	got := BuildCommand("claude", "haiku", nil, "mcp.json", "", nil)
 	if got[5] != "--tools" || got[6] != "" || got[8] != "mcp__leadin" {
 		t.Fatalf("command = %q", got)
+	}
+}
+
+func TestBuildCommandWithReadRules(t *testing.T) {
+	rules := []string{"Read(~/.claude/projects/-tmp-run-work/**)"}
+	got := BuildCommand("/x/claude", "sonnet", []string{"WebSearch", "WebFetch"}, "/run/config/mcp.json", "", rules)
+	if got[6] != "WebSearch,WebFetch,Read" {
+		t.Errorf("--tools = %q", got[6])
+	}
+	// The rule, never Read alone.
+	if got[8] != "mcp__leadin WebSearch WebFetch "+rules[0] {
+		t.Errorf("--allowedTools = %q", got[8])
+	}
+}
+
+func TestReadRulesNameTheRunProjectFolders(t *testing.T) {
+	workdir := filepath.Join(t.TempDir(), "work")
+	if err := os.Mkdir(workdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	rules := ReadRules(workdir)
+	dirs := ProjectDirs(workdir, "/c")
+	if len(rules) != len(dirs) || len(rules) == 0 {
+		t.Fatalf("rules = %q, project dirs = %q", rules, dirs)
+	}
+	// The same folders the end-of-run cleanup removes.
+	for i, dir := range dirs {
+		if want := "Read(~/.claude/projects/" + filepath.Base(dir) + "/**)"; rules[i] != want {
+			t.Errorf("rule %d = %q, want %q", i, rules[i], want)
+		}
+	}
+}
+
+func TestRunEnvRaisesTheMCPOutputLimit(t *testing.T) {
+	env := []string{"PATH=/usr/bin"}
+	got := RunEnv(env)
+	if !slices.Equal(got, []string{"PATH=/usr/bin", "MAX_MCP_OUTPUT_TOKENS=200000"}) {
+		t.Fatalf("env = %q", got)
+	}
+	if len(env) != 1 {
+		t.Fatalf("RunEnv changed its argument: %q", env)
 	}
 }
 
@@ -273,27 +315,18 @@ func TestConfigFilesMustNotExist(t *testing.T) {
 	if _, err := WriteMCPConfig(dir, "https://leadin.example/mcp", "tok"); err == nil {
 		t.Fatal("mcp.json overwritten")
 	}
-	if _, err := WriteAgentsConfig(dir, map[string]any{}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := WriteAgentsConfig(dir, map[string]any{}); err == nil {
-		t.Fatal("agents.json overwritten")
-	}
 }
 
-func TestAgentsConfigIsTheGivenValue(t *testing.T) {
-	dir := t.TempDir()
-	agents := map[string]any{"example-worker": map[string]any{"description": "d", "prompt": "p", "tools": []string{"WebSearch"}}}
-	path, err := WriteAgentsConfig(dir, agents)
+// The value of --agents is JSON, not a path: Claude Code 2.1.278 rejects a
+// path.
+func TestAgentsJSONIsTheGivenValue(t *testing.T) {
+	agents := map[string]any{"example-worker": map[string]any{"description": "Finds <città> & more", "prompt": "p", "tools": []string{"WebSearch"}}}
+	got, err := AgentsJSON(agents)
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, _ := os.ReadFile(path)
-	if string(data) != `{"example-worker":{"description":"d","prompt":"p","tools":["WebSearch"]}}` {
-		t.Fatalf("agents.json = %s", data)
-	}
-	if info, _ := os.Stat(path); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
-		t.Fatalf("mode = %v", info.Mode())
+	if got != `{"example-worker":{"description":"Finds <città> & more","prompt":"p","tools":["WebSearch"]}}` {
+		t.Fatalf("agents = %s", got)
 	}
 }
 

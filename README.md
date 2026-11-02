@@ -53,7 +53,7 @@ and check the limit from the outside.
 | None of your personal Claude Code configuration (hooks, `CLAUDE.md`, plugins, skills, agents, other MCP servers, `env` settings) applies to a run. Claude Code gets only a short list of environment variables: never `ANTHROPIC_*` or `CLAUDE_*`, so an API key left in your shell is not used. | [`internal/claude/command.go`](internal/claude/command.go) (`--restricted`, `--strict-mcp-config`), [`internal/claude/env.go`](internal/claude/env.go) | `TestPersonalConfigurationIsExcluded` |
 | A run stops after at most 3 hours. | [`internal/run/run.go`](internal/run/run.go) (`MaxRunDuration`) | `TestRunCannotOutliveMaxDuration` |
 | Cancelling a run stops Claude Code and every process it started. | [`internal/proc/`](internal/proc/) | `TestTemporaryDirectoryIsRemovedAfterCancel`; the process tree in `internal/proc/` |
-| Only neutral step names and counters reach the browser: never tool names, inputs, results or Claude's text. The local log holds only times, actions, outcomes and identifiers: never prompts, Claude's text, tokens or your email address. | [`internal/stream/stream.go`](internal/stream/stream.go), [`internal/logs/logs.go`](internal/logs/logs.go) | `TestLogHasNoPromptTokenOrToolNames` |
+| Only neutral step names and counters reach the browser: never tool names, inputs or results. Of Claude's text, only the end of its final answer, which LeadIn keeps on the run to tell how it ended (`final_message`). The local log holds only times, actions, outcomes and identifiers: never prompts, Claude's text, tokens or your email address. | [`internal/stream/stream.go`](internal/stream/stream.go), [`internal/logs/logs.go`](internal/logs/logs.go) | `TestLogHasNoPromptTokenOrToolNames` |
 | What Claude Code writes for the run in `~/.claude/projects/` and in `$TMPDIR/claude-<uid>/` is removed; the folders of your other projects are not touched. | [`internal/claude/cleanup.go`](internal/claude/cleanup.go) | `TestRunDirectoriesAreRemoved` |
 
 ## The commands it runs
@@ -65,15 +65,24 @@ claude --version
 claude auth status
 ```
 
-For a run, from the temporary folder (`<tools>` are those of the run spec,
-`--agents` only when it has subagents):
+For a run, from `work/` in the temporary folder (`<tools>` are those of the
+run spec, `--agents` only when it has subagents, with `Read` added to each
+subagent's tools; `<run folder>` is the name Claude Code gives to `work/`):
 
 ```
-claude -p --restricted --model <model> --tools <tools> \
-  --allowedTools "mcp__leadin <tools>" [--agents <folder>/agents.json] \
-  --mcp-config <folder>/mcp.json --strict-mcp-config --no-session-persistence \
+MAX_MCP_OUTPUT_TOKENS=200000 \
+claude -p --restricted --model <model> --tools <tools>,Read \
+  --allowedTools "mcp__leadin <tools> Read(~/.claude/projects/<run folder>/**)" \
+  [--agents '<subagents JSON>'] \
+  --mcp-config <folder>/config/mcp.json --strict-mcp-config --no-session-persistence \
   --output-format stream-json --verbose --input-format stream-json
 ```
+
+`Read` is there because Claude Code saves a tool answer longer than about
+50,000 characters to a file in the run's project folder and gives Claude only
+its path. It is allowed only in that folder, never in the rest of your home.
+`mcp.json` holds the run's token and sits in `config/`, outside the working
+directory, so that Claude cannot read it.
 
 The prompt is written to its stdin as one `stream-json` line. Its stderr is
 discarded, because it contains Claude's text.
@@ -83,7 +92,7 @@ discarded, because it contains Claude's text.
 Nothing of the run. In every case (finished, failed, cancelled, timed out)
 the helper removes:
 
-- the temporary folder `leadin-run-…` with `mcp.json` and `agents.json`;
+- the temporary folder `leadin-run-…`, with `work/` and `config/mcp.json`;
 - the folder Claude Code creates for it in `~/.claude/projects/` (with
   `--no-session-persistence` there is no transcript, but `WebFetch` saves
   large downloads there);
