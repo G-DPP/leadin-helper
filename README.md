@@ -152,6 +152,21 @@ administrator password. A window shows what it did; press Enter to close it.
 | macOS | `~/Library/Application Support/LeadIn/bin/leadin-helper` | a manifest in each browser profile under `~/Library/Application Support/` |
 | Windows | `%LOCALAPPDATA%\LeadIn\bin\leadin-helper.exe` | `%LOCALAPPDATA%\LeadIn\native_host\com.leadin.helper.json`, pointed to by `HKCU\Software\{Google\Chrome,Chromium,Microsoft\Edge}\NativeMessagingHosts\com.leadin.helper` |
 
+Or, without downloading anything by hand and without the warnings of macOS
+and Windows, from a terminal (the LeadIn setup page shows the same command
+with its own address, which redirects here):
+
+```bash
+curl -fsSL https://github.com/G-DPP/leadin-helper/releases/latest/download/install.sh | sh
+```
+
+```powershell
+irm https://github.com/G-DPP/leadin-helper/releases/latest/download/install.ps1 | iex
+```
+
+The script downloads the binary of its own release and `SHA256SUMS`, checks
+the hash and runs `--install`; with a wrong hash it installs nothing.
+
 From a terminal: `leadin-helper --install` does the same without waiting
 for Enter, and `leadin-helper --uninstall` removes the copy, the manifests and
 the registry keys (the log stays). Installing again overwrites the copy.

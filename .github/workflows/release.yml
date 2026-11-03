@@ -120,6 +120,23 @@ jobs:
           actual="$(unzipped/leadin-helper --version)"
           echo "$actual"
           [[ "$actual" == "leadin-helper $VERSION (protocol 2, $PLATFORM)" ]]
+      - name: Installer
+        # The alternative command against the files of this build, served
+        # locally: download, hash check, --install into an empty home.
+        run: |
+          home="$RUNNER_TEMP/home"
+          mkdir -p "$home/.config/google-chrome" "$home/Library/Application Support/Google/Chrome"
+          python="$(command -v python3 || command -v python)"
+          (cd release && "$python" -m http.server 8799 >/dev/null 2>&1 &)
+          sleep 2
+          export LEADIN_HELPER_BASE_URL=http://127.0.0.1:8799
+          if [[ "$TARGET" == windows_* ]]; then
+            out="$(LOCALAPPDATA="$home" powershell -NoProfile -Command "Get-Content -Raw release/install.ps1 | Invoke-Expression")"
+          else
+            out="$(HOME="$home" XDG_CONFIG_HOME='' XDG_DATA_HOME='' sh release/install.sh)"
+          fi
+          echo "$out"
+          [[ "$out" == *"Hash checked:"* && "$out" == *"Installed: LeadIn helper $VERSION is ready."* ]]
       - name: Ad hoc signature
         # The Go linker signs darwin/arm64 ad hoc: without a signature Apple
         # Silicon does not start the binary at all.

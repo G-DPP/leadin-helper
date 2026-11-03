@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds the files of a release in dist/release/: one binary per target, a
-# zip for the double click on Linux and macOS, and SHA256SUMS.
+# zip for the double click on Linux and macOS, the two installers of the
+# alternative command (install.sh, install.ps1) and SHA256SUMS.
 #
 # The build is reproducible: the same commit gives the same SHA256SUMS on any
 # machine, in any folder, at any time. scripts/verify-release.sh relies on it.
@@ -73,9 +74,15 @@ for target in linux/amd64 darwin/arm64 darwin/amd64 windows/amd64; do
 	fi
 done
 
+# The installers of the alternative command, with the release's version
+# written in: each one installs the release it belongs to.
+sed "s/__VERSION__/$version/g" scripts/install.sh >"$out/install.sh"
+sed "s/__VERSION__/$version/g" scripts/install.ps1 >"$out/install.ps1"
+chmod 0644 "$out/install.sh" "$out/install.ps1"
+
 (
 	cd "$out"
-	sha256sum -- leadin-helper_* | sort -k2 >"$tmp/SHA256SUMS"
+	sha256sum -- leadin-helper_* install.sh install.ps1 | sort -k2 >"$tmp/SHA256SUMS"
 	mv "$tmp/SHA256SUMS" SHA256SUMS
 	sha256sum -c --quiet SHA256SUMS
 )

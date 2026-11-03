@@ -11,6 +11,18 @@ The LeadIn helper starts Claude Code on your computer for the LeadIn website.
 
 The files without `.zip` are the same binaries, for those who install from a terminal.
 
+From a terminal, without the operating system's warnings (the LeadIn setup page gives the same command with its own address):
+
+```bash
+curl -fsSL https://github.com/G-DPP/leadin-helper/releases/download/v{version}/install.sh | sh
+```
+
+```powershell
+irm https://github.com/G-DPP/leadin-helper/releases/download/v{version}/install.ps1 | iex
+```
+
+Both check the hash against `SHA256SUMS` before installing.
+
 These binaries are not code-signed: macOS and Windows will warn you. LeadIn's setup page explains what to do.
 
 ## Verify
