@@ -57,10 +57,12 @@ func run(args []string, stdin *os.File, stdout, stderr io.Writer) int {
 // click, waits for Enter.
 func finish(err error, action string, out io.Writer, wait func()) int {
 	code := 0
-	fields := map[string]any{"event": action}
+	fields := map[string]any{"action": action, "outcome": "ok"}
 	if err != nil {
 		fmt.Fprintf(out, "\nERROR: %v\n", err)
-		fields["error"] = err.Error()
+		// Only that it failed: the message can hold paths of the home.
+		fields["outcome"] = "error"
+		fields["error"] = action + "_failed"
 		code = 1
 	}
 	logs.Open().Event(map[bool]string{true: "ERROR", false: "INFO"}[err != nil], fields)

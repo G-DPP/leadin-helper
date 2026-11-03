@@ -100,6 +100,9 @@ func TestGetInfoWithClaude(t *testing.T) {
 		"claude_version":    "2.1.300",
 		"logged_in":         true,
 		"subscription_type": "max",
+		"account":           "current",
+		"api_key_set":       false,
+		"claude_path":       filepath.Join(filepath.Dir(path), filepath.Base(path)),
 	}
 	assertReply(t, reply, want)
 	if !strings.HasSuffix(logText, " INFO action=get_info outcome=ok\n") {
@@ -141,6 +144,9 @@ func TestGetInfoWithoutClaude(t *testing.T) {
 		"claude_version":    nil,
 		"logged_in":         false,
 		"subscription_type": nil,
+		"account":           "current",
+		"api_key_set":       false,
+		"claude_path":       "",
 	})
 }
 

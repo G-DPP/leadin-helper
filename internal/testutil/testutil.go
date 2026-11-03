@@ -15,14 +15,19 @@ import (
 
 // FakeConfig is the content of fakeclaude.json (see the fakeclaude command).
 type FakeConfig struct {
-	Version      string `json:"version,omitempty"`
-	Auth         string `json:"auth,omitempty"`
-	AuthExitCode int    `json:"auth_exit_code,omitempty"`
-	Record       string `json:"record,omitempty"`
-	Fixture      string `json:"fixture,omitempty"`
-	DelayMS      int    `json:"delay_ms,omitempty"`
-	Child        string `json:"child,omitempty"`
-	Project      bool   `json:"project,omitempty"`
+	Version       string `json:"version,omitempty"`
+	Auth          string `json:"auth,omitempty"`
+	AuthExitCode  int    `json:"auth_exit_code,omitempty"`
+	Record        string `json:"record,omitempty"`
+	Fixture       string `json:"fixture,omitempty"`
+	DelayMS       int    `json:"delay_ms,omitempty"`
+	Child         string `json:"child,omitempty"`
+	Project       bool   `json:"project,omitempty"`
+	LoginAuth     string `json:"login_auth,omitempty"`
+	LoginExitCode int    `json:"login_exit_code,omitempty"`
+	LoginDelayMS  int    `json:"login_delay_ms,omitempty"`
+	Check         string `json:"check,omitempty"`
+	CheckExitCode int    `json:"check_exit_code,omitempty"`
 }
 
 // Call is one recorded invocation of the fake claude. Stdin, Cwd, Files,

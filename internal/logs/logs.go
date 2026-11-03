@@ -21,6 +21,8 @@ import (
 // For tools only the neutral progress key (key), never the tool name.
 var AllowedFields = []string{
 	"action",
+	// A setup step: a name from the fixed list (internal/setup).
+	"step",
 	"run_id",
 	"result_id",
 	"key",

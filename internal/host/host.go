@@ -1,9 +1,10 @@
 // Package host is the helper's main loop: it reads one request from Chrome
 // and answers it.
 //
-// Two actions: get_info (one reply) and start_run (a sequence of events).
-// For start_run the helper lives as long as the run: the extension opens one
-// connectNative port per run and closes it to cancel the run.
+// get_info and diagnostics get one reply; start_run and run_setup_step a
+// sequence of events. For those the helper lives as long as the run or the
+// step: the extension opens one connectNative port each and closes it to
+// cancel.
 package host
 
 import (
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/G-DPP/leadin-helper/internal/claude"
+	"github.com/G-DPP/leadin-helper/internal/config"
 	"github.com/G-DPP/leadin-helper/internal/install"
 	"github.com/G-DPP/leadin-helper/internal/logs"
 	"github.com/G-DPP/leadin-helper/internal/protocol"
@@ -24,7 +26,8 @@ import (
 
 // actions are the actions answered with a single reply.
 var actions = map[string]func() map[string]any{
-	"get_info": GetInfo,
+	"get_info":    GetInfo,
+	"diagnostics": Diagnostics,
 }
 
 // GetInfo describes the helper and the claude it would run.
@@ -32,8 +35,12 @@ var actions = map[string]func() map[string]any{
 // It uses the run environment, so the dashboard sees the same login the runs
 // will use.
 func GetInfo() map[string]any {
-	env := claude.RunEnvironment(os.Environ())
-	path := claude.Find(env)
+	settings := config.Load()
+	env, accountErr := settings.Apply(claude.RunEnvironment(os.Environ()))
+	if accountErr != nil {
+		env = claude.RunEnvironment(os.Environ())
+	}
+	path := claude.FindWith(env, settings.ClaudePath)
 	info := map[string]any{
 		"type":              "info",
 		"helper_version":    version.Version,
@@ -49,12 +56,16 @@ func GetInfo() map[string]any {
 	installPath, browsers := install.Status()
 	info["install_path"] = installPath
 	info["registered_browsers"] = browsers
+	// The account of the runs (never the key itself).
+	info["account"] = settings.Account
+	info["api_key_set"] = config.StoredAPIKey() != ""
+	info["claude_path"] = path
 	if path != "" {
 		if v := claude.Version(path, env); v != "" {
 			info["claude_version"] = v
 		}
 		loggedIn, subscription := claude.AuthStatus(path, env)
-		info["logged_in"] = loggedIn
+		info["logged_in"] = loggedIn && accountErr == nil
 		if subscription != nil {
 			info["subscription_type"] = *subscription
 		}
@@ -92,6 +103,9 @@ func Serve(r io.Reader, w io.Writer, logger *logs.Logger) (code int) {
 	action, _ = request["action"].(string)
 	if action == "start_run" {
 		return startRun(request, r, w, logger)
+	}
+	if action == "run_setup_step" {
+		return setupStep(request, r, w, logger)
 	}
 	handler, ok := actions[action]
 	if !ok {
@@ -151,7 +165,7 @@ func fail(w io.Writer, action string) {
 }
 
 func knownOr(action, fallback string) string {
-	if _, ok := actions[action]; ok || action == "start_run" {
+	if _, ok := actions[action]; ok || action == "start_run" || action == "run_setup_step" {
 		return action
 	}
 	return fallback

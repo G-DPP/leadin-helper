@@ -3,6 +3,8 @@ package claude
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -103,13 +105,26 @@ func AgentsJSON(agents any) (string, error) {
 }
 
 // ReadRules are the --allowedTools rules that allow Read only in the project
-// folders of workdir (ProjectDirs): on the person's PC ~ is their real home.
-// ~/.claude because RunEnvironment drops CLAUDE_CONFIG_DIR; one rule per name,
+// folders of workdir (ProjectDirs) inside the default configuration folder,
+// ~/.claude: on the person's PC ~ is their real home. One rule per name,
 // since on macOS the real path differs.
 func ReadRules(workdir string) []string {
+	return ReadRulesIn(workdir, ConfigDir())
+}
+
+// ReadRulesIn is ReadRules for the configuration folder configDir (the
+// profile account has its own): ~/… if it is inside the home, //… (an
+// absolute path in Claude Code's rules) otherwise. Always with "/".
+func ReadRulesIn(workdir, configDir string) []string {
+	prefix := "//" + strings.TrimPrefix(filepath.ToSlash(configDir), "/")
+	if home, err := os.UserHomeDir(); err == nil {
+		if rel, err := filepath.Rel(home, configDir); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			prefix = "~/" + filepath.ToSlash(rel)
+		}
+	}
 	rules := []string{}
 	for _, name := range pathNames(workdir) {
-		rules = append(rules, ReadTool+"(~/.claude/projects/"+name+"/**)")
+		rules = append(rules, ReadTool+"("+prefix+"/projects/"+name+"/**)")
 	}
 	return rules
 }

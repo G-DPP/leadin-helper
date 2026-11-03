@@ -49,6 +49,15 @@ func Find(env []string) string {
 	return find(env, KnownPaths())
 }
 
+// FindWith is Find, but a path chosen by the person (the setup page's
+// Advanced panel) comes first, if it is still there.
+func FindWith(env []string, chosen string) string {
+	if chosen != "" && isExecutable(chosen) {
+		return chosen
+	}
+	return Find(env)
+}
+
 func find(env []string, known []string) string {
 	if found := lookPath(env); found != "" {
 		return found

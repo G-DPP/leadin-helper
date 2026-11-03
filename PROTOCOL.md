@@ -11,9 +11,9 @@ helper never writes anything else to stdout.
   bytes of UTF-8 JSON. The JSON must be an object.
 - Incoming messages (extension → helper): at most **4 MB**. Outgoing
   messages (helper → extension): at most **1 MB**, Chrome's limit.
-- **One request per connection.** `get_info` gets one reply and the helper
-  exits. `start_run` gets a sequence of events and the helper exits when the
-  run ends.
+- **One request per connection.** `get_info` and `diagnostics` get one reply
+  and the helper exits. `start_run` and `run_setup_step` get a sequence of
+  events and the helper exits when the run or the step ends.
 - A message that is truncated, too large, not JSON or not an object gets
   `{"type": "error", "code": "invalid_request"}`.
 
@@ -39,7 +39,10 @@ Reply:
   "logged_in": true,
   "subscription_type": "pro",
   "install_path": "/home/someone/.local/share/leadin/bin/leadin-helper",
-  "registered_browsers": ["Brave", "Chrome"]
+  "registered_browsers": ["Brave", "Chrome"],
+  "account": "current",
+  "api_key_set": false,
+  "claude_path": "/home/someone/.local/bin/claude"
 }
 ```
 
@@ -50,9 +53,12 @@ Reply:
 | `os`, `arch` | Go's `GOOS` and `GOARCH` (`windows`, `darwin`, `linux`; `amd64`, `arm64`) |
 | `claude_found` | whether `claude` was found in `PATH` or in the usual install folders |
 | `claude_version` | the first word of `claude --version`, or `null` |
-| `logged_in` | `loggedIn` of `claude auth status`; `false` on any error |
+| `logged_in` | `loggedIn` of `claude auth status` with the account of the runs; `false` on any error, or with the `api_key` account and no key saved |
 | `subscription_type` | `subscriptionType` of `claude auth status`, or `null` |
 | `install_path` | the installed copy (see README, «Install»), or `""` if it is not there |
+| `account` | the account of the runs: `current`, `profile` or `api_key` (see `run_setup_step`) |
+| `api_key_set` | whether an API key is saved; the key itself never leaves the helper |
+| `claude_path` | the `claude` the runs will use, or `""` |
 | `registered_browsers` | the browsers where the host is registered, read when asked (on Windows Brave and Vivaldi follow Chrome's key) |
 
 `claude --version` and `claude auth status` run with the same environment as
@@ -228,6 +234,62 @@ With subagents, `usage` also carries Claude Code's `subagent_stats`
 (how many were spawned, and how): counters only. `duration_ms` and
 `num_turns` are summed over every turn of the main agent.
 
+## `run_setup_step`
+
+The installation steps of the LeadIn setup page. Like `start_run`, one port
+per step: the end of stdin (the port closed) cancels it and stops every
+process it started.
+
+Request:
+
+```json
+{"action": "run_setup_step", "step": "login_claude", "options": {"method": "subscription"}}
+```
+
+The steps are a fixed list in the helper; the page only picks one. Options
+are strings, and a step accepts only its own:
+
+| `step` | `options` | What it runs |
+|---|---|---|
+| `install_claude` | — | Claude Code's native installer: `curl -fsSL https://claude.ai/install.sh \| bash`, on Windows `powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://claude.ai/install.ps1 \| iex"`. 10 minutes at most |
+| `login_claude` | `method`: `subscription` or `console` | `claude auth login --claudeai` / `--console`, stdin closed: it opens the default browser and exits when the person has logged in. 5 minutes at most. With the `profile` account, inside the profile's folder; not with `api_key` |
+| `logout_claude` | — | `claude auth logout` (to change account) |
+| `set_claude_config` | `account`: `current`, `profile` or `api_key`; `api_key`; `claude_path` (absolute, or empty to find it) | saves the choices in the helper's data folder (`config.json`, the key in `api_key`, readable by the user only). `api_key` needs a key, given now or before; another account deletes the saved key |
+| `check_claude` | — | `claude -p --restricted --tools "" --strict-mcp-config --max-turns 1 --no-session-persistence --output-format text "Reply with OK."` with the account of the runs: one minimal request. With an API key it is the only way to know the key works |
+
+Events, in order:
+
+```json
+{"type": "setup_started", "step": "login_claude", "command": "claude auth login --claudeai"}
+{"type": "setup_output", "line": "Opening your browser to sign in as <email>"}
+{"type": "setup_finished", "step": "login_claude", "exit_code": 0, "error_code": ""}
+```
+
+- `command` is the command shown in the page's Details.
+- `setup_output` carries stdout and stderr, one line each (at most 2 000
+  characters, 5 000 lines). Email addresses become `<email>`. The key is never
+  printed.
+- `exit_code` is `null` if no command started. `error_code` is `""` on
+  success, otherwise one of `invalid_request` (unknown step or option),
+  `claude_not_found`, `network_error`, `install_failed`, `login_failed`,
+  `claude_not_logged_in`, `invalid_api_key`, `usage_limit`, `check_failed`,
+  `config_failed`, `timeout`, `cancelled`.
+
+The account chosen with `set_claude_config` is used by every later run and by
+`get_info`: `profile` sets `CLAUDE_CONFIG_DIR` to the profile's folder,
+`api_key` sets `ANTHROPIC_API_KEY`. Inherited `ANTHROPIC_*` and `CLAUDE_*`
+variables are never passed.
+
+## `diagnostics`
+
+```json
+{"action": "diagnostics"}
+```
+
+Reply: `{"type": "diagnostics", "text": "…"}`, a block for the person to copy
+into a message: the helper version, the OS, every `get_info` field and the
+last 50 lines of the local log. Never the API key or the email address.
+
 ## `error`
 
 ```json
@@ -250,5 +312,6 @@ With subagents, `usage` also carries Claude Code's `subagent_stats`
 - **2, added fields (helper 0.7.0)**: the spec's `model` may be a full id
   (`claude-…`), the spec and each subagent may have `effort`. An older helper
   rejects a full id with `invalid_spec`; the server asks for 0.7.0 at least.
-- **2, added fields (helper 0.8.0)**: `get_info` carries `install_path` and
-  `registered_browsers`.
+- **2, added fields (helper 0.8.0)**: `get_info` carries `install_path`,
+  `registered_browsers`, `account`, `api_key_set` and `claude_path`; new
+  actions `run_setup_step` and `diagnostics`.

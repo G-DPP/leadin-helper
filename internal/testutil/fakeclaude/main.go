@@ -49,6 +49,16 @@ type Config struct {
 	// file inside, as WebFetch does with large files, and its folder in
 	// $TMPDIR/claude-<uid>/, as background subagents do.
 	Project bool `json:"project"`
+	// LoginAuth is what `auth status` prints after `auth login` succeeds;
+	// LoginExitCode is the exit code of the login, LoginDelayMS its wait
+	// (the person in the browser). `auth logout` makes the status logged out.
+	LoginAuth     string `json:"login_auth"`
+	LoginExitCode int    `json:"login_exit_code"`
+	LoginDelayMS  int    `json:"login_delay_ms"`
+	// Check, if set, is what a run prints instead of a fixture (the setup
+	// page's check), with CheckExitCode.
+	Check         string `json:"check"`
+	CheckExitCode int    `json:"check_exit_code"`
 }
 
 // Call is one recorded invocation.
@@ -79,6 +89,19 @@ func run(args []string) int {
 		record(config.Record, Call{Args: args})
 	}
 	switch strings.Join(args, " ") {
+	case "auth login --claudeai", "auth login --console":
+		os.Stdout.WriteString("Opening your browser to sign in as someone@example.com\n")
+		time.Sleep(time.Duration(config.LoginDelayMS) * time.Millisecond)
+		if config.LoginExitCode == 0 {
+			config.Auth = config.LoginAuth
+			writeConfig(config)
+		}
+		return config.LoginExitCode
+	case "auth logout":
+		config.Auth = `{"loggedIn": false}`
+		writeConfig(config)
+		os.Stdout.WriteString("Successfully logged out\n")
+		return 0
 	case "--version":
 		if config.Version == "" {
 			return 1
@@ -96,6 +119,13 @@ func run(args []string) int {
 }
 
 func playRun(config Config, args []string) int {
+	if config.Check != "" {
+		if config.Record != "" {
+			record(config.Record, Call{Args: args})
+		}
+		os.Stdout.WriteString(config.Check + "\n")
+		return config.CheckExitCode
+	}
 	stdin, _ := io.ReadAll(os.Stdin)
 	cwd, _ := os.Getwd()
 	if config.Record != "" {
@@ -197,6 +227,20 @@ func readConfig() Config {
 	}
 	_ = json.Unmarshal(data, &config)
 	return config
+}
+
+// writeConfig saves config back to fakeclaude.json: a login changes what
+// the next `auth status` prints.
+func writeConfig(config Config) {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	data, err := json.Marshal(config)
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(filepath.Dir(exe), "fakeclaude.json"), data, 0o644)
 }
 
 func record(path string, call Call) {

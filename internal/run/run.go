@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/G-DPP/leadin-helper/internal/claude"
+	"github.com/G-DPP/leadin-helper/internal/config"
 	"github.com/G-DPP/leadin-helper/internal/logs"
 	"github.com/G-DPP/leadin-helper/internal/proc"
 	"github.com/G-DPP/leadin-helper/internal/protocol"
@@ -70,8 +71,14 @@ func Run(req StartRequest, stdin io.Reader, out io.Writer, logger *logs.Logger) 
 
 	// The same environment for the checks and for the run: the login checked
 	// is the one claude will use.
-	env := claude.RunEnvironment(os.Environ())
-	path := claude.Find(env)
+	// The account chosen in the setup page (config): the profile's folder
+	// or the API key are added to the filtered environment.
+	settings := config.Load()
+	env, err := settings.Apply(claude.RunEnvironment(os.Environ()))
+	if err != nil {
+		return fail(out, "claude_not_logged_in", nil)
+	}
+	path := claude.FindWith(env, settings.ClaudePath)
 	if path == "" {
 		return fail(out, "claude_not_found", nil)
 	}
@@ -89,7 +96,7 @@ func Run(req StartRequest, stdin io.Reader, out io.Writer, logger *logs.Logger) 
 	}
 
 	logger.Event(logs.Info, map[string]any{"action": "claude_start", "run_id": req.RunID})
-	return execute(req, runSpec, path, env, v, stdin, out, logger)
+	return execute(req, runSpec, path, env, settings.ClaudeConfigDir(), v, stdin, out, logger)
 }
 
 // versions are claude's version and subscription type, nil when unknown.
@@ -113,7 +120,7 @@ func (v versions) fields(withSubscription bool) map[string]any {
 	return fields
 }
 
-func execute(req StartRequest, runSpec spec.RunSpec, path string, env []string, v versions, stdin io.Reader, out io.Writer, logger *logs.Logger) map[string]any {
+func execute(req StartRequest, runSpec spec.RunSpec, path string, env []string, configDir string, v versions, stdin io.Reader, out io.Writer, logger *logs.Logger) map[string]any {
 	// The run's folder: work/ is claude's working directory, config/ keeps
 	// mcp.json out of Read's reach (--restricted lets Read into the working
 	// directory, and Claude must not read the token).
@@ -123,7 +130,6 @@ func execute(req StartRequest, runSpec spec.RunSpec, path string, env []string, 
 	}
 	workdir := filepath.Join(runDir, "work")
 	privateDir := filepath.Join(runDir, "config")
-	configDir := claude.ConfigDir()
 	var tree *proc.Tree
 	// Cleanup in every case, panics included: stop claude if it is still
 	// running, then remove the run's folders and the one with mcp.json (and
@@ -139,7 +145,7 @@ func execute(req StartRequest, runSpec spec.RunSpec, path string, env []string, 
 		return fail(out, "unknown", v.fields(true))
 	}
 
-	cmd, stdout, err := command(runSpec, path, env, workdir, privateDir)
+	cmd, stdout, err := command(runSpec, path, env, workdir, privateDir, configDir)
 	if err != nil {
 		return fail(out, "unknown", v.fields(true))
 	}
@@ -218,7 +224,7 @@ func execute(req StartRequest, runSpec spec.RunSpec, path string, env []string, 
 // project folders), the filtered environment with the MCP answer limit,
 // stderr discarded (it contains Claude's text) and stdout on a pipe whose
 // read end is returned.
-func command(runSpec spec.RunSpec, path string, env []string, workdir, privateDir string) (*exec.Cmd, *os.File, error) {
+func command(runSpec spec.RunSpec, path string, env []string, workdir, privateDir, configDir string) (*exec.Cmd, *os.File, error) {
 	mcpConfig, err := claude.WriteMCPConfig(privateDir, runSpec.MCPURL, runSpec.MCPToken)
 	if err != nil {
 		return nil, nil, err
@@ -229,7 +235,7 @@ func command(runSpec spec.RunSpec, path string, env []string, workdir, privateDi
 			return nil, nil, err
 		}
 	}
-	args := claude.BuildCommand(path, runSpec.Model, runSpec.Effort, runSpec.Tools, mcpConfig, agents, claude.ReadRules(workdir))
+	args := claude.BuildCommand(path, runSpec.Model, runSpec.Effort, runSpec.Tools, mcpConfig, agents, claude.ReadRulesIn(workdir, configDir))
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Dir = workdir
 	cmd.Env = claude.RunEnv(env)
