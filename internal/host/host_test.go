@@ -31,7 +31,24 @@ func isolate(t *testing.T, dir string) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("APPDATA", "")
+	t.Setenv("LOCALAPPDATA", home)
+	t.Setenv("XDG_DATA_HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("PATH", dir)
+}
+
+// takeInstallFields checks that get_info reports a helper not installed in
+// the isolated home, and removes the two fields from the reply.
+func takeInstallFields(t *testing.T, reply map[string]any) {
+	t.Helper()
+	if reply["install_path"] != "" {
+		t.Errorf("install_path = %#v", reply["install_path"])
+	}
+	if browsers, ok := reply["registered_browsers"].([]any); !ok || len(browsers) != 0 {
+		t.Errorf("registered_browsers = %#v", reply["registered_browsers"])
+	}
+	delete(reply, "install_path")
+	delete(reply, "registered_browsers")
 }
 
 func request(t *testing.T, message map[string]any) *bytes.Buffer {
@@ -271,6 +288,9 @@ func TestPanicBecomesUnknown(t *testing.T) {
 
 func assertReply(t *testing.T, reply, want map[string]any) {
 	t.Helper()
+	if _, ok := reply["registered_browsers"]; ok {
+		takeInstallFields(t, reply)
+	}
 	if len(reply) != len(want) {
 		t.Fatalf("reply = %#v, want %#v", reply, want)
 	}

@@ -37,7 +37,9 @@ Reply:
   "claude_found": true,
   "claude_version": "2.1.300",
   "logged_in": true,
-  "subscription_type": "pro"
+  "subscription_type": "pro",
+  "install_path": "/home/someone/.local/share/leadin/bin/leadin-helper",
+  "registered_browsers": ["Brave", "Chrome"]
 }
 ```
 
@@ -50,6 +52,8 @@ Reply:
 | `claude_version` | the first word of `claude --version`, or `null` |
 | `logged_in` | `loggedIn` of `claude auth status`; `false` on any error |
 | `subscription_type` | `subscriptionType` of `claude auth status`, or `null` |
+| `install_path` | the installed copy (see README, «Install»), or `""` if it is not there |
+| `registered_browsers` | the browsers where the host is registered, read when asked (on Windows Brave and Vivaldi follow Chrome's key) |
 
 `claude --version` and `claude auth status` run with the same environment as
 a run (see `internal/claude/env.go`), so the login shown is the one a run
@@ -246,3 +250,5 @@ With subagents, `usage` also carries Claude Code's `subagent_stats`
 - **2, added fields (helper 0.7.0)**: the spec's `model` may be a full id
   (`claude-…`), the spec and each subagent may have `effort`. An older helper
   rejects a full id with `invalid_spec`; the server asks for 0.7.0 at least.
+- **2, added fields (helper 0.8.0)**: `get_info` carries `install_path` and
+  `registered_browsers`.

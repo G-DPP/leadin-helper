@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/G-DPP/leadin-helper/internal/version"
@@ -54,13 +55,65 @@ func TestVersionFlagPrintsVersion(t *testing.T) {
 	}
 }
 
-func TestVersionWithOtherArgumentsActsAsNativeHost(t *testing.T) {
+func TestOriginArgumentActsAsNativeHost(t *testing.T) {
 	binary := build(t)
-	out, err := isolated(t, binary, "--version", "--foo").Output()
-	if err != nil {
-		t.Fatalf("native host with empty stdin: %v", err)
+	for _, args := range [][]string{
+		{"chrome-extension://fmkimdbalkokmkkpkapnmjjohhhcdpbm/"},
+		{"chrome-extension://fmkimdbalkokmkkpkapnmjjohhhcdpbm/", "--parent-window=0"},
+	} {
+		out, err := isolated(t, binary, args...).Output()
+		if err != nil {
+			t.Fatalf("%q: %v", args, err)
+		}
+		if len(out) != 0 {
+			t.Errorf("%q: with empty stdin the native host must not answer, got %q", args, out)
+		}
 	}
-	if len(out) != 0 {
-		t.Errorf("with empty stdin the native host must not answer, got %q", out)
+}
+
+func TestUnknownArgumentsPrintUsage(t *testing.T) {
+	binary := build(t)
+	for _, args := range [][]string{{"--version", "--foo"}, {"--help"}, {"--install", "x"}} {
+		cmd := isolated(t, binary, args...)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		exit, ok := err.(*exec.ExitError)
+		if !ok || exit.ExitCode() != 2 || !strings.Contains(stderr.String(), "usage: leadin-helper") {
+			t.Errorf("%q: err %v, stderr %q", args, err, stderr.String())
+		}
+	}
+}
+
+func TestInstallAndUninstallFlags(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("writes the real HKCU keys of the browsers: covered by internal/install with test keys")
+	}
+	binary := build(t)
+	home := t.TempDir()
+	env := append(os.Environ(), "HOME="+home, "USERPROFILE="+home, "LOCALAPPDATA="+filepath.Join(home, "AppData"),
+		"XDG_DATA_HOME=", "XDG_CONFIG_HOME="+filepath.Join(home, "config"))
+	if runtime.GOOS == "linux" {
+		if err := os.MkdirAll(filepath.Join(home, "config", "google-chrome"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if runtime.GOOS == "darwin" {
+		if err := os.MkdirAll(filepath.Join(home, "Library", "Application Support", "Google", "Chrome"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, flag := range []string{"--install", "--uninstall"} {
+		cmd := exec.Command(binary, flag)
+		cmd.Env = env
+		cmd.Stdin = bytes.NewReader(nil)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", flag, err, out)
+		}
+		want := map[string]string{"--install": "Installed: LeadIn helper 1.2.3 is ready.", "--uninstall": "Uninstalled:"}[flag]
+		if !strings.Contains(string(out), want) || strings.Contains(string(out), "Press Enter") {
+			t.Errorf("%s printed %s", flag, out)
+		}
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/G-DPP/leadin-helper/internal/claude"
+	"github.com/G-DPP/leadin-helper/internal/install"
 	"github.com/G-DPP/leadin-helper/internal/logs"
 	"github.com/G-DPP/leadin-helper/internal/protocol"
 	"github.com/G-DPP/leadin-helper/internal/run"
@@ -44,6 +45,10 @@ func GetInfo() map[string]any {
 		"logged_in":         false,
 		"subscription_type": nil,
 	}
+	// Read now, not at install time: the registration can go away (P7).
+	installPath, browsers := install.Status()
+	info["install_path"] = installPath
+	info["registered_browsers"] = browsers
 	if path != "" {
 		if v := claude.Version(path, env); v != "" {
 			info["claude_version"] = v

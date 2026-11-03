@@ -139,6 +139,25 @@ The same binaries are also in the release without a zip
 terminal or want to compare the hashes. `SHA256SUMS` lists the hash of every
 file.
 
+## Install
+
+Double-click the file you downloaded (on macOS and Linux, the one inside the
+zip). The helper copies itself into a folder of your user and registers with
+every Chromium browser it finds (Chrome, Chromium, Edge, Brave, Vivaldi). No
+administrator password. A window shows what it did; press Enter to close it.
+
+| OS | Installed copy | Registration |
+|---|---|---|
+| Linux | `~/.local/share/leadin/bin/leadin-helper` | a manifest in each browser profile, e.g. `~/.config/google-chrome/NativeMessagingHosts/com.leadin.helper.json` |
+| macOS | `~/Library/Application Support/LeadIn/bin/leadin-helper` | a manifest in each browser profile under `~/Library/Application Support/` |
+| Windows | `%LOCALAPPDATA%\LeadIn\bin\leadin-helper.exe` | `%LOCALAPPDATA%\LeadIn\native_host\com.leadin.helper.json`, pointed to by `HKCU\Software\{Google\Chrome,Chromium,Microsoft\Edge}\NativeMessagingHosts\com.leadin.helper` |
+
+From a terminal: `leadin-helper --install` does the same without waiting
+for Enter, and `leadin-helper --uninstall` removes the copy, the manifests and
+the registry keys (the log stays). Installing again overwrites the copy.
+Opening the browser once before installing creates its profile: a browser
+never opened is not found.
+
 To see which version you have:
 
 ```bash
@@ -204,7 +223,7 @@ tutorial shows how to go ahead.
 The helper tells the server its version and protocol version when it
 redeems a ticket. If the server needs a newer helper, the run stops with
 `helper_outdated` and the LeadIn website asks you to update: download the
-version it asks for and register it again. Nothing updates by itself.
+version it asks for and double-click it again. Nothing updates by itself.
 
 A build from source is version `0.0.0-dev` (release builds set the version,
 see `scripts/build-release.sh`). A server that sets a minimum version turns it down;
