@@ -17,8 +17,18 @@ import (
 	"github.com/G-DPP/leadin-helper/internal/claude"
 )
 
-// Models are the model aliases that can be passed to `claude --model`.
-var Models = []string{"sonnet", "opus", "haiku"}
+// The model goes on the command line (`claude --model`), so only safe
+// characters. The helper does not know which models exist: it checks the
+// shape. An alias, or a full id `claude-…` (what the run's configuration
+// picks on the server), lowercase, without `--`.
+var ModelAliases = []string{"sonnet", "opus", "haiku"}
+
+// MaxModel bounds a model id.
+const MaxModel = 64
+
+// Efforts are the levels of `claude --effort` and of a subagent's `effort`.
+// Empty (or missing) = not passed, and Claude Code's own applies.
+var Efforts = []string{"low", "medium", "high", "xhigh", "max"}
 
 // BuiltinTools are the built-in tools a run can have: the two web tools and
 // the subagent tool.
@@ -31,7 +41,7 @@ var AgentTools = []string{"WebSearch", "WebFetch"}
 
 // AgentFields are the fields of a subagent in the `claude --agents` format.
 // The others (hooks, MCP servers, permissions…) would widen the run.
-var AgentFields = []string{"description", "prompt", "tools", "model"}
+var AgentFields = []string{"description", "prompt", "tools", "model", "effort"}
 
 const (
 	MaxAgents    = 10
@@ -54,6 +64,7 @@ const (
 var (
 	mcpTool   = regexp.MustCompile(`^mcp__` + claude.MCPServerName + `__(\*|[A-Za-z0-9_]+)$`)
 	agentName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	modelID   = regexp.MustCompile(`^claude-[a-z0-9]+(-[a-z0-9]+)*$`)
 	// word is a key or value of progress_map, an outcome or result_id_key:
 	// tool names and neutral keys, never text.
 	word = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)
@@ -67,6 +78,7 @@ type Agent struct {
 	Prompt      string   `json:"prompt"`
 	Tools       []string `json:"tools"`
 	Model       string   `json:"model,omitempty"`
+	Effort      string   `json:"effort,omitempty"`
 }
 
 // RunSpec is a checked run spec.
@@ -75,6 +87,7 @@ type RunSpec struct {
 	MCPURL         string
 	MCPToken       string
 	Model          string
+	Effort         string
 	Prompt         string
 	Tools          []string
 	Agents         map[string]Agent
@@ -114,8 +127,14 @@ func Validate(data map[string]any, serverURL string, runID int64) (RunSpec, bool
 		return RunSpec{}, false
 	}
 	model, ok := data["model"].(string)
-	if !ok || !slices.Contains(Models, model) {
+	if !ok || !ValidModel(model) {
 		return RunSpec{}, false
+	}
+	effort := ""
+	if raw, present := data["effort"]; present {
+		if effort, ok = raw.(string); !ok || (effort != "" && !slices.Contains(Efforts, effort)) {
+			return RunSpec{}, false
+		}
 	}
 	prompt, ok := data["prompt"].(string)
 	if !ok || !validText(prompt, MaxPrompt) {
@@ -165,6 +184,7 @@ func Validate(data map[string]any, serverURL string, runID int64) (RunSpec, bool
 		MCPURL:         mcpURL,
 		MCPToken:       mcpToken,
 		Model:          model,
+		Effort:         effort,
 		Prompt:         prompt,
 		Tools:          tools,
 		Agents:         agents,
@@ -236,6 +256,12 @@ func validAgents(data map[string]any) (map[string]Agent, bool) {
 	return agents, true
 }
 
+// ValidModel is true for an alias (sonnet) or a `claude-…` id of at most
+// MaxModel characters.
+func ValidModel(value string) bool {
+	return slices.Contains(ModelAliases, value) || (len(value) <= MaxModel && modelID.MatchString(value))
+}
+
 func validAgent(value any) (Agent, bool) {
 	fields, ok := value.(map[string]any)
 	if !ok {
@@ -256,7 +282,13 @@ func validAgent(value any) (Agent, bool) {
 	}
 	model := ""
 	if raw, present := fields["model"]; present {
-		if model, ok = raw.(string); !ok || !slices.Contains(Models, model) {
+		if model, ok = raw.(string); !ok || !ValidModel(model) {
+			return Agent{}, false
+		}
+	}
+	effort := ""
+	if raw, present := fields["effort"]; present {
+		if effort, ok = raw.(string); !ok || !slices.Contains(Efforts, effort) {
 			return Agent{}, false
 		}
 	}
@@ -269,7 +301,7 @@ func validAgent(value any) (Agent, bool) {
 			return Agent{}, false
 		}
 	}
-	return Agent{Description: description, Prompt: prompt, Tools: tools, Model: model}, true
+	return Agent{Description: description, Prompt: prompt, Tools: tools, Model: model, Effort: effort}, true
 }
 
 func validProgressMap(data map[string]any) (map[string]string, bool) {

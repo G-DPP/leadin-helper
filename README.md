@@ -45,8 +45,8 @@ and check the limit from the outside.
 |---|---|---|
 | Claude Code starts only in a new, empty temporary folder (`leadin-run-…`), deleted at the end in every case. | [`internal/run/run.go`](internal/run/run.go) | `TestRunsInEmptyTemporaryDirectory`, `TestTemporaryDirectoryIsRemovedAfterSuccess`, `…AfterFailure`, `…AfterCancel`, `…AfterTimeout`, `…AfterPanic` |
 | At most these tools: `WebSearch`, `WebFetch`, `Agent` and the LeadIn MCP server alone. Never files or a terminal (`Bash`, `Read`, `Write`, `Edit`…). The server can only narrow this list. | [`internal/spec/spec.go`](internal/spec/spec.go), [`internal/claude/command.go`](internal/claude/command.go) | `TestOnlyAllowedBuiltinToolsReachClaude`, `TestSpecWithBashIsRejected`, `TestSpecWithReadWriteEditIsRejected` |
-| Subagents get at most `WebSearch`, `WebFetch` and the LeadIn MCP server, never `Agent`, and no fields beyond description, prompt, tools and model. | [`internal/spec/spec.go`](internal/spec/spec.go) | `TestSubagentToolsAreLimited`, `TestSubagentWithAgentToolIsRejected` |
-| The model is `sonnet`, `opus` or `haiku`. | [`internal/spec/spec.go`](internal/spec/spec.go) | `TestInvalidSpecNeverStartsClaude` (in `run_test.go`) |
+| Subagents get at most `WebSearch`, `WebFetch` and the LeadIn MCP server, never `Agent`, and no fields beyond description, prompt, tools, model and effort. | [`internal/spec/spec.go`](internal/spec/spec.go) | `TestSubagentToolsAreLimited`, `TestSubagentWithAgentToolIsRejected` |
+| The model is an alias (`sonnet`, `opus`, `haiku`) or a `claude-…` id of safe characters, and the effort one of Claude Code's levels. | [`internal/spec/spec.go`](internal/spec/spec.go) | `TestInvalidSpecNeverStartsClaude` (in `run_test.go`) |
 | Only the LeadIn MCP server, on the same address as the LeadIn server, over `https` (`http` only on this computer). | [`internal/spec/redeem.go`](internal/spec/redeem.go), [`internal/spec/spec.go`](internal/spec/spec.go) | `TestOnlyLeadinMCPServerIsConfigured`, `TestMCPOnOtherOriginIsRejected`, `TestPlainHTTPRemoteMCPIsRejected` |
 | The ticket goes only to the LeadIn server the extension is configured for: redirects are not followed. | [`internal/spec/redeem.go`](internal/spec/redeem.go) | `TestRedeemDoesNotFollowRedirects` (in `internal/spec/redeem_test.go`) |
 | The prompt and the token are never in the command line, which any program can see: the prompt goes through stdin, the token into a file only you can read (`mcp.json`, permissions `0600`). | [`internal/run/run.go`](internal/run/run.go), [`internal/claude/files.go`](internal/claude/files.go) | `TestPromptIsNeverInArguments`, `TestTokenIsNeverInArguments`, `TestTokenFileIsOwnerOnly` |
@@ -72,7 +72,7 @@ subagent's tools; `<run folder>` is the name Claude Code gives to `work/`):
 
 ```
 MAX_MCP_OUTPUT_TOKENS=200000 \
-claude -p --restricted --model <model> --tools <tools>,Read \
+claude -p --restricted --model <model> [--effort <effort>] --tools <tools>,Read \
   --allowedTools "mcp__leadin <tools> Read(~/.claude/projects/<run folder>/**)" \
   [--agents '<subagents JSON>'] \
   --mcp-config <folder>/config/mcp.json --strict-mcp-config --no-session-persistence \

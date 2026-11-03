@@ -479,6 +479,19 @@ func TestRunForwardsProgressAndFinalEvent(t *testing.T) {
 
 // The guarantees on the command (prompt and token out of the arguments,
 // --restricted, --strict-mcp-config…) are in constraints_test.go.
+func TestModelIDAndEffortComeFromSpec(t *testing.T) {
+	skipOnWindows(t)
+	e := newEnv(t)
+	e.server.spec["model"] = "claude-opus-5-5"
+	e.server.spec["effort"] = "high"
+	e.run(0)
+	args := e.runCall().Args
+	i := slices.Index(args, "--model")
+	if !slices.Equal(args[i:i+4], []string{"--model", "claude-opus-5-5", "--effort", "high"}) {
+		t.Fatalf("args = %q", args)
+	}
+}
+
 func TestCommandComesFromSpec(t *testing.T) {
 	skipOnWindows(t)
 	e := newEnv(t)

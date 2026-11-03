@@ -229,7 +229,7 @@ func command(runSpec spec.RunSpec, path string, env []string, workdir, privateDi
 			return nil, nil, err
 		}
 	}
-	args := claude.BuildCommand(path, runSpec.Model, runSpec.Tools, mcpConfig, agents, claude.ReadRules(workdir))
+	args := claude.BuildCommand(path, runSpec.Model, runSpec.Effort, runSpec.Tools, mcpConfig, agents, claude.ReadRules(workdir))
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Dir = workdir
 	cmd.Env = claude.RunEnv(env)

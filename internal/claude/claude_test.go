@@ -203,7 +203,7 @@ func TestApiKeyNeverReachesAuthStatus(t *testing.T) {
 }
 
 func TestBuildCommandMatchesTheEarlierHelper(t *testing.T) {
-	got := BuildCommand("/x/claude", "opus", []string{"WebSearch", "WebFetch"}, "/run/mcp.json", "", nil)
+	got := BuildCommand("/x/claude", "opus", "", []string{"WebSearch", "WebFetch"}, "/run/mcp.json", "", nil)
 	want := []string{
 		"/x/claude", "-p", "--restricted", "--model", "opus",
 		"--tools", "WebSearch,WebFetch",
@@ -218,7 +218,7 @@ func TestBuildCommandMatchesTheEarlierHelper(t *testing.T) {
 
 func TestBuildCommandWithSubagents(t *testing.T) {
 	agents := `{"example-worker":{"description":"d","prompt":"p","tools":["WebSearch"]}}`
-	got := BuildCommand("/x/claude", "sonnet", []string{"WebSearch", "WebFetch", "Agent"}, "/run/mcp.json", agents, nil)
+	got := BuildCommand("/x/claude", "sonnet", "", []string{"WebSearch", "WebFetch", "Agent"}, "/run/mcp.json", agents, nil)
 	want := []string{
 		"/x/claude", "-p", "--restricted", "--model", "sonnet",
 		"--tools", "WebSearch,WebFetch,Agent",
@@ -232,8 +232,19 @@ func TestBuildCommandWithSubagents(t *testing.T) {
 	}
 }
 
+func TestBuildCommandAddsEffortAfterModel(t *testing.T) {
+	got := BuildCommand("claude", "claude-opus-5-5", "max", []string{"WebSearch"}, "mcp.json", "", nil)
+	i := slices.Index(got, "--model")
+	if !slices.Equal(got[i:i+4], []string{"--model", "claude-opus-5-5", "--effort", "max"}) {
+		t.Fatalf("command = %q", got)
+	}
+	if slices.Contains(BuildCommand("claude", "sonnet", "", nil, "mcp.json", "", nil), "--effort") {
+		t.Fatal("--effort without an effort")
+	}
+}
+
 func TestBuildCommandWithoutTools(t *testing.T) {
-	got := BuildCommand("claude", "haiku", nil, "mcp.json", "", nil)
+	got := BuildCommand("claude", "haiku", "", nil, "mcp.json", "", nil)
 	if got[5] != "--tools" || got[6] != "" || got[8] != "mcp__leadin" {
 		t.Fatalf("command = %q", got)
 	}
@@ -241,7 +252,7 @@ func TestBuildCommandWithoutTools(t *testing.T) {
 
 func TestBuildCommandWithReadRules(t *testing.T) {
 	rules := []string{"Read(~/.claude/projects/-tmp-run-work/**)"}
-	got := BuildCommand("/x/claude", "sonnet", []string{"WebSearch", "WebFetch"}, "/run/config/mcp.json", "", rules)
+	got := BuildCommand("/x/claude", "sonnet", "", []string{"WebSearch", "WebFetch"}, "/run/config/mcp.json", "", rules)
 	if got[6] != "WebSearch,WebFetch,Read" {
 		t.Errorf("--tools = %q", got[6])
 	}

@@ -55,7 +55,10 @@ const SubagentTool = "Agent"
 // prompt is not here: it goes through stdin (--input-format stream-json). A
 // subagent's prompt only points to the MCP tools, which give the
 // instructions; spec.MaxAgentsJSON keeps the line under the Windows limit.
-func BuildCommand(path, model string, tools []string, mcpConfig, agents string, readRules []string) []string {
+//
+// With effort --effort follows --model, as on the LeadIn server: it comes
+// from the run's configuration.
+func BuildCommand(path, model, effort string, tools []string, mcpConfig, agents string, readRules []string) []string {
 	allowed := append(append([]string{"mcp__" + MCPServerName}, tools...), readRules...)
 	builtin := append([]string{}, tools...)
 	if len(readRules) > 0 {
@@ -66,9 +69,14 @@ func BuildCommand(path, model string, tools []string, mcpConfig, agents string, 
 		"-p",
 		"--restricted",
 		"--model", model,
+	}
+	if effort != "" {
+		command = append(command, "--effort", effort)
+	}
+	command = append(command,
 		"--tools", strings.Join(builtin, ","),
 		"--allowedTools", strings.Join(allowed, " "),
-	}
+	)
 	if agents != "" {
 		command = append(command, "--agents", agents)
 	}

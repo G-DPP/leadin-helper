@@ -3,6 +3,7 @@ package spec
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -142,8 +143,84 @@ func TestSpecForAnotherRunIsRejected(t *testing.T) {
 }
 
 func TestSpecWithUnknownModelIsRejected(t *testing.T) {
-	assertRejected(t, "unknown model", makeSpec(t, server, false, set("model", "claude-opus-x")))
+	assertRejected(t, "model that is not claude", makeSpec(t, server, false, set("model", "gpt-5")))
 	assertRejected(t, "model not a string", makeSpec(t, server, false, set("model", json.Number("1"))))
+}
+
+func TestModelAliasIsAccepted(t *testing.T) {
+	for _, model := range []string{"sonnet", "opus", "haiku"} {
+		if got, ok := validate(t, makeSpec(t, server, false, set("model", model))); !ok || got.Model != model {
+			t.Errorf("model %q: %v %v", model, got.Model, ok)
+		}
+	}
+}
+
+func TestModelIDIsAccepted(t *testing.T) {
+	for _, model := range []string{"claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5", "claude-x"} {
+		if got, ok := validate(t, makeSpec(t, server, false, set("model", model))); !ok || got.Model != model {
+			t.Errorf("model %q: %v %v", model, got.Model, ok)
+		}
+	}
+}
+
+func TestModelWithUppercaseIsRejected(t *testing.T) {
+	assertRejected(t, "uppercase", makeSpec(t, server, false, set("model", "claude-Opus-5-5")))
+}
+
+func TestModelWithDoubleDashOrSpacesIsRejected(t *testing.T) {
+	for _, model := range []string{"claude--opus", "claude-opus-", "claude-opus --tools Bash", "--tools", "claude- opus"} {
+		assertRejected(t, model, makeSpec(t, server, false, set("model", model)))
+	}
+}
+
+func TestModelNotStartingWithClaudeIsRejected(t *testing.T) {
+	for _, model := range []string{"gpt-5", "xclaude-opus", "", "Sonnet"} {
+		assertRejected(t, model, makeSpec(t, server, false, set("model", model)))
+	}
+}
+
+func TestModelLongerThan64IsRejected(t *testing.T) {
+	longest := "claude-" + strings.Repeat("a", 57)
+	if _, ok := validate(t, makeSpec(t, server, false, set("model", longest))); !ok {
+		t.Fatal("a 64-character id is rejected")
+	}
+	assertRejected(t, "65 characters", makeSpec(t, server, false, set("model", longest+"a")))
+}
+
+func TestEffortIsOptionalAndFromTheList(t *testing.T) {
+	if got, ok := validate(t, makeSpec(t, server, false, nil)); !ok || got.Effort != "" {
+		t.Fatalf("without effort: %q %v", got.Effort, ok)
+	}
+	for _, effort := range []string{"", "low", "medium", "high", "xhigh", "max"} {
+		if got, ok := validate(t, makeSpec(t, server, false, set("effort", effort))); !ok || got.Effort != effort {
+			t.Errorf("effort %q: %q %v", effort, got.Effort, ok)
+		}
+	}
+	for _, effort := range []any{"HIGH", "ultra", " high", "high --tools Bash", nil, json.Number("1")} {
+		assertRejected(t, fmt.Sprint(effort), makeSpec(t, server, false, set("effort", effort)))
+	}
+}
+
+func TestAgentModelAndEffortFollowSameRules(t *testing.T) {
+	withAgent := func(fields map[string]any) map[string]any {
+		return makeSpec(t, server, true, func(data map[string]any) {
+			for key, value := range fields {
+				worker(data)[key] = value
+			}
+		})
+	}
+	got, ok := validate(t, withAgent(map[string]any{"model": "claude-haiku-5-5", "effort": "low"}))
+	if !ok {
+		t.Fatal("agent with model id and effort is rejected")
+	}
+	for _, agent := range got.Agents {
+		if agent.Model != "claude-haiku-5-5" || agent.Effort != "low" {
+			t.Fatalf("agent = %+v", agent)
+		}
+	}
+	for _, fields := range []map[string]any{{"model": "claude--x"}, {"model": "gpt-5"}, {"effort": "ultra"}, {"effort": ""}} {
+		assertRejected(t, fmt.Sprint(fields), withAgent(fields))
+	}
 }
 
 func TestSpecWithBashIsRejected(t *testing.T) {
@@ -242,7 +319,7 @@ func TestSubagentWithExtraFieldsIsRejected(t *testing.T) {
 }
 
 func TestSubagentWithUnknownModelIsRejected(t *testing.T) {
-	assertRejected(t, "unknown model", makeSpec(t, server, true, func(data map[string]any) { worker(data)["model"] = "claude-opus-x" }))
+	assertRejected(t, "model that is not claude", makeSpec(t, server, true, func(data map[string]any) { worker(data)["model"] = "gpt-5" }))
 	assertRejected(t, "null model", makeSpec(t, server, true, func(data map[string]any) { worker(data)["model"] = nil }))
 }
 

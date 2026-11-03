@@ -113,10 +113,11 @@ what the helper can do, never if it widens it:
 | `run_id` | equal to the requested one |
 | `mcp_url` | same origin as `server_url` |
 | `mcp_token` | 1–512 visible ASCII characters |
-| `model` | `sonnet`, `opus` or `haiku` |
+| `model` | an alias (`sonnet`, `opus`, `haiku`) or a full id matching `claude-[a-z0-9]+(-[a-z0-9]+)*`, at most 64 characters |
+| `effort` | optional: empty, or one of `low`, `medium`, `high`, `xhigh`, `max`, passed as `--effort` |
 | `prompt` | not blank, at most 250 000 characters |
 | `tools` | a subset of `WebSearch`, `WebFetch`, `Agent`, without duplicates |
-| `agents` | object, at most 10 subagents; present if and only if `tools` has `Agent`. Name in `[A-Za-z0-9_-]{1,64}`; fields `description` and `prompt` (not blank, at most 10 000 characters), `tools` (not empty, within `WebSearch`, `WebFetch` and `mcp__leadin__*`; never `Agent`) and optionally `model`. Their JSON goes on Claude Code's command line, so it holds at most 8 000 characters |
+| `agents` | object, at most 10 subagents; present if and only if `tools` has `Agent`. Name in `[A-Za-z0-9_-]{1,64}`; fields `description` and `prompt` (not blank, at most 10 000 characters), `tools` (not empty, within `WebSearch`, `WebFetch` and `mcp__leadin__*`; never `Agent`) and optionally `model` and `effort`, with the same rules as the run's. Their JSON goes on Claude Code's command line, so it holds at most 8 000 characters |
 | `progress_map` | object, at most 200 entries: tool name → neutral progress key, both in `[A-Za-z0-9_]{1,64}` |
 | `outcomes` | the outcomes allowed in Claude's last line: 1–20 words in `[A-Za-z0-9_]{1,64}`, without duplicates, including `failed` |
 | `result_id_key` | the key of Claude's last line holding the result id, a word in `[A-Za-z0-9_]{1,64}` |
@@ -242,3 +243,6 @@ With subagents, `usage` also carries Claude Code's `subagent_stats`
 - **2, added fields**: `run_finished` carries `error_code` and
   `final_message`, `run_failed` after an error `result` carries
   `final_message`. Added fields only: the protocol version does not change.
+- **2, added fields (helper 0.7.0)**: the spec's `model` may be a full id
+  (`claude-…`), the spec and each subagent may have `effort`. An older helper
+  rejects a full id with `invalid_spec`; the server asks for 0.7.0 at least.
