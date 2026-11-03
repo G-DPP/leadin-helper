@@ -358,6 +358,12 @@ func TestRunDirNamesFollowSymlinks(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("ProjectDirs = %v, want %v", got, want)
 	}
+	rules := ReadRules(link)
+	wantRules := []string{"Read(~/.claude/projects/" + dirName(link) + "/**)", "Read(~/.claude/projects/" + dirName(realPath) + "/**)"}
+	slices.Sort(wantRules)
+	if !slices.Equal(rules, wantRules) {
+		t.Fatalf("ReadRules = %q, want %q", rules, wantRules)
+	}
 	tasks := TaskOutputDirs(link)
 	if len(tasks) != 2 || filepath.Base(filepath.Dir(tasks[0])) != "claude-"+strconv.Itoa(os.Getuid()) {
 		t.Fatalf("TaskOutputDirs = %v", tasks)

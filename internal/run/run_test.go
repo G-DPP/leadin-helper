@@ -135,7 +135,15 @@ type env struct {
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
-	e := &env{t: t, home: t.TempDir(), tmp: t.TempDir()}
+	// The real path of the temporary folder: on macOS it is under /var, a
+	// symlink to /private/var, and the run would get two names (the Read
+	// rules, the project folders). The symlink case has its own tests in
+	// internal/claude.
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &env{t: t, home: t.TempDir(), tmp: tmp}
 	e.claude = testutil.BuildFakeClaude(t)
 	e.record = filepath.Join(t.TempDir(), "calls.jsonl")
 	e.log = filepath.Join(t.TempDir(), "helper.log")
@@ -254,8 +262,8 @@ func dirName(path string) string {
 	return b.String()
 }
 
-// readRule is the one Read rule of a run in cwd (no symlinks in the tests'
-// temporary folders on Linux).
+// readRule is the one Read rule of a run in cwd (newEnv uses a temporary
+// folder without symlinks).
 func readRule(cwd string) string {
 	return "Read(~/.claude/projects/" + dirName(cwd) + "/**)"
 }
