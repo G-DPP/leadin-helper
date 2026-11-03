@@ -17,11 +17,12 @@ the Claude Code you have already installed.
 **Status:** in development.
 
 - **Linux:** verified, also with the LeadIn dashboard.
-- **macOS:** builds and passes the tests, not yet tried with the dashboard.
-- **Windows:** builds and passes `go vet`, but it has **not been run on
-  Windows yet**. There Claude Code runs in a job object, so cancelling a run
-  stops it with every process it started; the test of this
-  (`internal/proc/proc_windows_test.go`) will run in the release CI.
+- **macOS:** the tests pass in CI on Apple Silicon, and the release binary
+  starts there. Not yet tried with the dashboard; the warning macOS shows
+  for an unsigned program is still to be checked.
+- **Windows:** the tests pass in CI, including the one of the job object
+  that stops a cancelled run with every process it started
+  (`internal/proc/proc_windows_test.go`). Not yet tried with the dashboard.
 - Automatic registration with the browser and signed-off releases are on
   the way. For now the helper is built from source.
 
@@ -118,6 +119,7 @@ this one does: start Claude Code with a ticket it cannot get.
 
 ## Downloads
 
+Download the helper from the [releases page](https://github.com/G-DPP/leadin-helper/releases/latest).
 Each release has these files (`X.Y.Z` is the version):
 
 | Your computer | Take this file |
@@ -157,7 +159,7 @@ Check that the release really comes from this code: this rebuilds the tag
 `vX.Y.Z` in a temporary folder and compares every hash.
 
 ```bash
-git clone <this repository> && cd leadin-helper
+git clone https://github.com/G-DPP/leadin-helper.git && cd leadin-helper
 scripts/verify-release.sh X.Y.Z <URL of the release's SHA256SUMS>
 ```
 
