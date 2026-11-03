@@ -46,7 +46,7 @@ download() {
 	fi
 }
 
-echo "Downloading LeadIn helper $VERSION for $goos/$goarch…"
+echo "Downloading LeadIn helper ${VERSION} for ${goos}/${goarch}..."
 download "$BASE_URL/SHA256SUMS" "$tmp/SHA256SUMS" || fail "cannot download $BASE_URL/SHA256SUMS"
 download "$BASE_URL/$file" "$tmp/$file" || fail "cannot download $BASE_URL/$file"
 
